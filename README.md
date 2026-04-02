@@ -1,71 +1,239 @@
-SPC Bunny Connector
-A WordPress plugin that bridges Super Page Cache Pro and Bunny.net CDN — automatically keeping your Bunny Pull Zone cache in sync with your server-side cache, with zero manual intervention.
+# SPC Bunny Connector
 
-Why This Exists
-Super Page Cache Pro is excellent at managing your server's HTML cache. Bunny CDN is excellent at serving that HTML from the edge. But when SPC clears its cache, Bunny doesn't know. You're left with stale HTML at the CDN while your server has fresh content.
-This plugin fixes that. It hooks directly into SPC's internal purge controller — not the Cloudflare-specific hooks, but the actual swcfpc_purge_all and swcfpc_purge_urls actions that fire regardless of CDN provider — and triggers a full Bunny Pull Zone purge every time SPC clears its cache. No polling, no cron workarounds. It just works.
+**WordPress plugin — Super Page Cache Pro + Bunny.net CDN**
 
-Features
-Cache Sync
+Automatically keeps your Bunny Pull Zone cache in sync with Super Page Cache. Deploys a full suite of edge rules, cleans up Perma-Cache storage, warms the cache after purges, and surfaces live CDN stats — all from a single WordPress admin panel.
 
-Hooks into SPC's purge flow at the source — full and per-URL purges both trigger a Bunny zone purge
-Supports SPC Free and SPC Pro
-Also purges on post publish/update, Bricks Builder saves (via REST API hooks), plugin/theme updates, and manual purge button
-Cache Sync Status card with live 8-second polling so you can see both caches clearing together in real time
+---
 
-Edge Rules (19 rules, per-rule on/off toggles)
-Deployed directly to your Bunny Pull Zone via API:
-#Rule1Force SSL — HTTP→HTTPS at the edge2Disable Shield & WAF for WP admin3Bypass cache for logged-in users4Bypass cache for WP admin & PHP5Bypass Perma-Cache for WP admin & PHP6Disable Optimizer for WP admin & login7Bypass cache for wp-cron.php8Bypass cache for REST API9Bypass cache for RSS/Atom feeds10–11WooCommerce pages + session cookies12–13SureCart pages + session cookies14Custom URL exclusions (your own paths)15Cache HTML for anonymous visitors (configurable TTL)16No browser cache for HTML (edge caches, browser doesn't — fresh after every purge without reload)171-year browser cache for static assets18Ignore query strings on CSS & JS19Security headers (X-Content-Type-Options, X-Frame-Options, Referrer-Policy, X-XSS-Protection)
-Supports WooCommerce, SureCart, WPML, and Polylang for multilingual URL variants.
-Perma-Cache Cleanup
-When Bunny does a full Pull Zone purge, Perma-Cache files are not deleted — Bunny switches to a new directory and the old one accumulates storage cost indefinitely. This plugin connects to the Bunny Storage API and automatically deletes old __bcdn_perma_cache__ directories after every purge, keeping only the newest (active) one.
-Stats Dashboard
-Live data pulled from the Bunny API:
+## The Problem
 
-Total bandwidth, cached bandwidth, uncached bandwidth
-Cache hit rate
-Requests served
-Average origin response time
-Homepage cache health check (HIT / MISS / BYPASS)
+Super Page Cache Pro manages your server's HTML cache. Bunny CDN serves that HTML from the edge. But when SPC clears its cache, Bunny doesn't know. Your server has fresh content while Bunny keeps serving stale HTML to visitors.
 
-DNS Stats
-If you use Bunny DNS, a dedicated tab shows query statistics for your DNS zone — total queries, cached queries, and average response time.
-Cache Warmer
-After every full purge, an optional background cron job crawls your sitemap and pre-warms the CDN edge so the first real visitor gets a cache hit. Detects and uses the correct sitemap for:
+The obvious fix — hook into SPC's purge actions — turns out to be non-trivial. The hooks the SPC team documents (`swcfpc_cf_purge_whole_cache_after`, `swcfpc_cf_purge_cache_by_urls_after`) only fire when Cloudflare is actively connected. Since this stack uses Bunny instead of Cloudflare, those hooks never fire.
 
-Yoast SEO
-Rank Math
-All in One SEO
-SEOPress
-SlimSEO
-The SEO Framework
-Squirrly
-WordPress core sitemap (5.5+)
+The correct hooks are `swcfpc_purge_all` and `swcfpc_purge_urls`, found in `cache_controller.class.php`. These fire unconditionally regardless of CDN provider. This plugin hooks those directly.
 
-Configurable batch size and delay between batches.
-Custom Cache Exclusions
-Enter one path per line in the Edge Rules tab. Those paths bypass Bunny's edge cache on deploy — useful for pages you want to stay dynamic regardless of the global caching rules.
+---
 
-Requirements
+## Requirements
 
-WordPress 6.0+
-PHP 8.1+
-Super Page Cache Pro (free version also supported)
-A Bunny.net account with a Pull Zone
+- WordPress 6.0+
+- PHP 8.1+
+- Super Page Cache (free or Pro)
+- Bunny.net account with a Pull Zone
 
+---
 
-Installation
+## Installation
 
-Download the zip from Releases
-Upload and activate via Plugins → Add New → Upload
-Go to Settings → SPC Bunny Connector
-Enter your Bunny Account API Key and select your Pull Zone
-Go to Edge Rules and click Deploy Edge Rules
+1. Download the latest zip from [Releases](../../releases)
+2. In WordPress, go to **Plugins → Add New → Upload Plugin**
+3. Upload the zip and activate
+4. Go to **Settings → SPC Bunny Connector**
+5. Enter your **Bunny Account API Key** (found in your Bunny dashboard under Account)
+6. Select your **Pull Zone** from the dropdown
+7. Go to the **Edge Rules tab** and click **Deploy Edge Rules**
 
+That's it. Bunny will now purge automatically whenever SPC clears its cache.
 
-Background
-Built by Nahnu Media for internal use across client sites running the Bricks Builder / Super Page Cache / Bunny CDN stack. Open sourced because the SPC + Bunny combination is surprisingly common and surprisingly undocumented.
-The hardest part of building this was discovering that the hooks the SPC team documented (swcfpc_cf_purge_whole_cache_after, swcfpc_cf_purge_cache_by_urls_after) only fire when Cloudflare is actively connected. Since these sites use Bunny instead of Cloudflare, those hooks never fire. The correct hooks — swcfpc_purge_all and swcfpc_purge_urls in cache_controller.class.php — fire unconditionally regardless of CDN provider. That took a while to figure out.
+---
 
-License
+## Configuration
+
+### Settings Tab
+
+| Setting | Description |
+|---|---|
+| Account API Key | Your Bunny.net account API key |
+| Pull Zone | The Pull Zone connected to your WordPress site |
+| DNS Zone ID | Optional — enables the DNS Stats tab if you use Bunny DNS |
+| Post publish / update | Purge Bunny when a post or page is saved |
+| Plugin / theme updates | Purge Bunny when plugins or themes are updated |
+| Admin toolbar button | Adds a Purge Bunny button to the WP admin bar |
+| Auto-warm cache after purge | Crawls your sitemap after every full purge to pre-populate the edge |
+| Perma-Cache cleanup | Deletes old Perma-Cache directories after every purge |
+
+### Edge Rules Tab
+
+Deploys up to 19 edge rules to your Pull Zone. Each rule has an on/off toggle — enable only what your site needs. Rules are deployed in a specific order so bypass rules always take priority over cache rules.
+
+**Custom Cache Exclusions** — enter one path per line to bypass edge caching for specific pages. Supports wildcards (`/shop/*`). Changes take effect on next Deploy.
+
+### Manual Purge Tab
+
+Purge the full Bunny Pull Zone cache on demand.
+
+### Purge Log Tab
+
+Shows the last 20 purge events with timestamp, trigger source, and result.
+
+### DNS Stats Tab
+
+Query statistics for your Bunny DNS zone. Requires a DNS Zone ID in Settings.
+
+---
+
+## Edge Rules
+
+All 19 rules, in deployment order:
+
+| # | Rule | What it does |
+|---|---|---|
+| 1 | Force SSL | Redirects HTTP → HTTPS at the CDN edge. Faster than an origin redirect. |
+| 2 | Disable Shield & WAF: WP admin | Bypasses Bunny Shield and WAF for `/wp-admin/*`. `wp-login.php` keeps Shield active for bot protection. |
+| 3 | Bypass cache: logged-in users | Skips cache for `wordpress_logged_in_*`, `comment_author_*`, `wp-postpass_*` cookies. |
+| 4 | Bypass cache: WP admin & PHP | No caching for `/wp-admin/*` and `*.php` requests. |
+| 5 | Bypass Perma-Cache: WP admin & PHP | Admin responses must never be stored in Perma-Cache. |
+| 6 | Disable Optimizer: WP admin & login | Bunny Optimizer can mangle admin JS/CSS. Disabled for admin and login pages. |
+| 7 | Bypass cache: wp-cron.php | WP cron must always hit origin. Never cached or Shield-challenged. |
+| 8 | Bypass cache: REST API | `/wp-json/*` is dynamic per-request. Never cached. |
+| 9 | Bypass cache: RSS/Atom feeds | Feeds update with every new post. Always served fresh. |
+| 10–11 | WooCommerce pages + cookies | Dynamically resolved from WooCommerce settings. Supports WPML and Polylang. |
+| 12–13 | SureCart pages + cookies | Checkout, dashboard, order confirmation, shop, cart. Supports WPML and Polylang. |
+| 14 | Custom URL exclusions | Your own paths, configured in the Edge Rules tab. |
+| 15 | Cache HTML: anonymous visitors | Caches HTTP 200 responses at Bunny edge nodes. TTL configurable (1 hour to 30 days). |
+| 16 | No browser cache: HTML | Sends `Cache-Control: no-store` to browsers. Edge still caches — browsers always fetch fresh after purge. No manual reload needed. |
+| 17 | Long browser cache: static assets | 1-year browser cache for CSS, JS, images, fonts. |
+| 18 | Ignore query string: CSS & JS | `style.css?ver=6.4.1` and `style.css?ver=6.4.2` share one cache entry. Eliminates redundant misses from WordPress version params. |
+| 19 | Security headers | `X-Content-Type-Options: nosniff`, `X-Frame-Options: SAMEORIGIN`, `Referrer-Policy: strict-origin-when-cross-origin`, `X-XSS-Protection: 1; mode=block` on all responses. |
+
+---
+
+## Cache Warmer
+
+After every full purge, an optional background cron job fetches your sitemap and makes an HTTP request to each URL. This pre-populates Bunny's edge cache so the first real visitor gets a HIT instead of a MISS.
+
+**Supported sitemap plugins** — the warmer detects whichever is active:
+
+- Yoast SEO (free + premium)
+- Rank Math
+- All in One SEO
+- SEOPress (free + pro)
+- SlimSEO
+- The SEO Framework
+- Squirrly SEO
+- WordPress core sitemap (5.5+)
+
+If no sitemap is found, falls back to the homepage plus the 50 most recent posts.
+
+**Settings:** configurable batch size (1–50 URLs per run) and delay between batches (5–300 seconds).
+
+---
+
+## Perma-Cache Cleanup
+
+When Bunny does a full Pull Zone purge, Perma-Cache files are **not** deleted. Bunny switches to a new directory inside your storage zone (`pullzone__yourzone__XXXXXXXX/`) and the old one accumulates indefinitely, costing storage.
+
+This plugin connects to the Bunny Edge Storage API and automatically deletes old directories after every purge, keeping only the newest (currently active) one.
+
+**Setup:**
+1. Go to **Settings → Advanced → Perma-Cache Cleanup**
+2. Enter your **Storage Zone Name** (the zone connected to Perma-Cache in your Pull Zone settings)
+3. Enter the **Storage Zone Password** (found under FTP & API Access in the storage zone — different from your account API key)
+4. Select your **Storage Region**
+5. Set how many directories to keep (default: 1)
+6. Click **Test Connection** to verify, then **Save Settings**
+
+Cleanup runs automatically on every full purge and logs results to the Purge Log tab.
+
+---
+
+## Cache Sync Status
+
+The Stats tab includes a **Cache Sync Status** card that polls every 8 seconds and shows:
+
+- When Bunny CDN was last cleared
+- When Super Page Cache was last cleared
+- Whether the two are in sync
+
+This makes it easy to confirm that clearing SPC is actually triggering a Bunny purge.
+
+---
+
+## How Purges Are Triggered
+
+| Event | Trigger |
+|---|---|
+| SPC "Purge whole cache" button | `swcfpc_purge_all` action |
+| SPC per-URL purge (post save) | `swcfpc_purge_urls` action |
+| Post publish / update (classic editor) | `save_post` hook |
+| Post publish / update (Bricks Builder, Gutenberg) | `rest_after_insert_{post_type}` hook |
+| Plugin or theme update | `upgrader_process_complete` hook |
+| Manual purge button (admin panel) | AJAX |
+| Admin bar purge button | AJAX |
+
+All purges are full Pull Zone purges. Bunny's per-URL purge is unreliable due to URL variant mismatches (www/non-www, trailing slash, query strings), so a full purge is always used.
+
+---
+
+## Frequently Asked Questions
+
+**Do I need Super Page Cache Pro or does the free version work?**  
+Both work. The hooks this plugin uses (`swcfpc_purge_all`, `swcfpc_purge_urls`) exist in the free version.
+
+**Why does this do a full Pull Zone purge instead of purging just the changed URL?**  
+Bunny's per-URL purge requires an exact match including protocol, subdomain, trailing slash, and query string variants. A single post URL typically has 4–6 valid cached variants. Missing any one means the stale version stays at the edge. A full zone purge takes the same amount of time and guarantees a clean slate.
+
+**Will the cache warmer slow down my server after a purge?**  
+The warmer runs in batches via WP cron with a configurable delay between batches. The default is 5 URLs per batch with a 30-second delay. Adjust these based on your server capacity.
+
+**Does this work with Cloudflare in front of Bunny?**  
+Not tested. This plugin assumes Bunny is the edge layer. If Cloudflare is in front, you'd need a separate Cloudflare purge step.
+
+**Why does the Force SSL rule only match HTTP URLs?**  
+The rule triggers on `http://yourdomain.com/*` and redirects to HTTPS. HTTPS traffic is not affected.
+
+**Can I use this without deploying edge rules?**  
+Yes. The cache sync (purging Bunny when SPC purges) works independently of the edge rules. Edge rules are optional and additive.
+
+---
+
+## Development Notes
+
+### Architecture
+
+```
+spc-bunny-connector/
+├── spc-bunny-connector.php          # Bootstrap, SPC hook registration at file scope
+└── includes/
+    ├── class-spc-bunny-api.php      # Bunny REST API (Pull Zone, Storage, DNS)
+    ├── class-spc-bunny-stats.php    # CDN stats fetcher
+    ├── class-spc-bunny-purge.php    # Purge orchestration
+    ├── class-spc-bunny-hooks.php    # WordPress action hooks
+    ├── class-spc-bunny-warmer.php   # Sitemap crawler and cache warmer
+    ├── class-spc-bunny-edge-rules.php  # Edge rule deployment
+    ├── class-spc-bunny-perma-cache.php # Perma-Cache storage cleanup
+    └── class-spc-bunny-admin.php    # Admin UI
+```
+
+### Why SPC hooks are registered at file scope
+
+WordPress loads plugins alphabetically. `wp-cloudflare-page-cache` loads before `spc-bunny-connector`. By the time `plugins_loaded` fires and most plugins register their hooks, SPC may have already completed a purge triggered early in the request lifecycle (AJAX, REST, cron).
+
+Registering `swcfpc_purge_all` and `swcfpc_purge_urls` as global functions at the top level of the main plugin file — before any `add_action` wrapper — guarantees they are in the WordPress hook registry before SPC runs, regardless of load order.
+
+### Bunny API endpoints used
+
+| Endpoint | Purpose |
+|---|---|
+| `POST /pullzone/{id}/purgeCache` | Full Pull Zone purge |
+| `POST /pullzone/{id}` | Update Pull Zone settings |
+| `POST /pullzone/{id}/edgerules/addOrUpdate` | Deploy / update edge rule |
+| `DELETE /pullzone/{id}/edgerules/{guid}` | Remove edge rule |
+| `GET /pullzone` | List Pull Zones |
+| `GET /statistics?pullZone={id}` | CDN statistics |
+| `GET /dnszone` | List DNS zones |
+| `GET /dnszone/{id}/statistics` | DNS query statistics |
+| `GET /{zoneName}/__bcdn_perma_cache__/` | List Perma-Cache directories |
+| `DELETE /{zoneName}/{path}/` | Delete Perma-Cache directory |
+
+---
+
+## License
+
 GPL-2.0+
+
+---
+
+Built by [Nahnu Media](https://nahnumedia.com)
