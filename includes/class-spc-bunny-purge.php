@@ -1,4 +1,6 @@
 <?php
+declare( strict_types=1 );
+
 defined( 'ABSPATH' ) || exit;
 
 class SPC_Bunny_Purge {
@@ -10,26 +12,26 @@ class SPC_Bunny_Purge {
     }
 
     /**
-     * Full Pull Zone purge — used for all events.
-     * Bunny per-URL purge requires exact URL + variant matching which is unreliable.
-     * A full zone purge is instant and guarantees a clean slate.
+     * Full Pull Zone purge.
+     * Only runs warmer and Perma-Cache cleanup on success.
      */
     public function purge_all(): void {
         $result = $this->api->purge_all();
         $this->log_result( $result, 'full' );
-        if ( ! is_wp_error( $result ) ) {
-            update_option( 'spc_bunny_last_purge', current_time( 'mysql' ), false );
+
+        if ( is_wp_error( $result ) ) {
+            return;
         }
+
+        update_option( 'spc_bunny_last_purge', current_time( 'mysql' ), false );
         ( new SPC_Bunny_Stats() )->flush();
         SPC_Bunny_Warmer::schedule();
         SPC_Bunny_Perma_Cache::maybe_cleanup();
     }
 
     /**
-     * Called on post save/update — always does a full purge.
-     * Per-URL purge was unreliable due to URL variant mismatches (www/non-www,
-     * trailing slash, query strings). Full purge ensures the updated page is
-     * always fresh at the edge.
+     * Purge triggered by a post save. Guards against revisions, autosaves,
+     * and non-published posts before calling purge_all().
      */
     public function purge_post( int $post_id ): void {
         if ( wp_is_post_revision( $post_id ) || wp_is_post_autosave( $post_id ) ) {
@@ -42,7 +44,7 @@ class SPC_Bunny_Purge {
         $this->purge_all();
     }
 
-    private function log_result( mixed $result, string $context ): void {
+    private function log_result( true|WP_Error $result, string $context ): void {
         $log = get_option( 'spc_bunny_purge_log', [] );
         array_unshift( $log, [
             'time'    => current_time( 'mysql' ),

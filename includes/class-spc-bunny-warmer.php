@@ -1,4 +1,5 @@
 <?php
+declare( strict_types=1 );
 defined( 'ABSPATH' ) || exit;
 
 class SPC_Bunny_Warmer {
@@ -177,7 +178,8 @@ class SPC_Bunny_Warmer {
         return array_values( array_unique( array_filter( $urls ) ) );
     }
 
-    private static function parse_sitemap( string $url, bool $is_index = true ): array {
+    private static function parse_sitemap( string $url, bool $is_index = true, int $depth = 0 ): array {
+        if ( $depth > 2 ) { return []; }
         $response = wp_remote_get( $url, [
             'timeout'    => 10,
             'user-agent' => 'SPC-Bunny-Warmer/1.0',
@@ -198,7 +200,7 @@ class SPC_Bunny_Warmer {
             foreach ( $xml->sitemap as $child ) {
                 $child_url = (string) ( $child->loc ?? '' );
                 if ( $child_url ) {
-                    $urls = array_merge( $urls, self::parse_sitemap( $child_url, false ) );
+                    $urls = array_merge( $urls, self::parse_sitemap( $child_url, false, $depth + 1 ) );
                     if ( count( $urls ) >= 500 ) {
                         break;
                     }

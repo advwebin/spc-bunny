@@ -1,4 +1,6 @@
 <?php
+declare( strict_types=1 );
+
 defined( 'ABSPATH' ) || exit;
 
 class SPC_Bunny_Stats {
@@ -21,13 +23,10 @@ class SPC_Bunny_Stats {
 
         // CacheHitRate is already a percentage (e.g. 2.95 = 2.95%), not a 0-1 fraction
         $hit_rate = round( (float) ( $raw['CacheHitRate'] ?? 0 ), 1 );
-
-        // Total bandwidth served from edge
         $bw_total = (int) ( $raw['TotalBandwidthUsed'] ?? 0 );
 
-        // Cached bandwidth: sum the BandwidthCachedChart values for the period.
-        // TotalOriginTraffic is NOT reliable for this — it can exceed TotalBandwidthUsed
-        // because it measures all origin pulls including those outside the CDN edge.
+        // Sum BandwidthCachedChart for accurate cached BW.
+        // TotalOriginTraffic is unreliable — can exceed TotalBandwidthUsed.
         $cached_chart = $raw['BandwidthCachedChart'] ?? [];
         $bw_cached    = is_array( $cached_chart ) ? (int) array_sum( $cached_chart ) : 0;
         $bw_uncached  = max( 0, $bw_total - $bw_cached );
@@ -58,14 +57,14 @@ class SPC_Bunny_Stats {
         $response = wp_remote_head( home_url( '/' ), [
             'timeout'    => 8,
             'user-agent' => 'SPC-Bunny-Health/1.0',
-            'sslverify'  => false,
+            'sslverify'  => true,
         ] );
 
         if ( is_wp_error( $response ) ) {
             $result = [ 'status' => 'unknown', 'label' => 'Unknown', 'server' => '' ];
         } else {
-            $cdn    = strtoupper( wp_remote_retrieve_header( $response, 'cdn-cache' ) );
-            $server = wp_remote_retrieve_header( $response, 'server' );
+            $cdn    = strtoupper( (string) wp_remote_retrieve_header( $response, 'cdn-cache' ) );
+            $server = (string) wp_remote_retrieve_header( $response, 'server' );
             $age    = (int) wp_remote_retrieve_header( $response, 'age' );
 
             if ( $cdn === 'HIT' ) {
@@ -74,7 +73,7 @@ class SPC_Bunny_Stats {
                 $result = [ 'status' => 'miss',    'label' => 'MISS',               'server' => $server ];
             } elseif ( $cdn === 'BYPASS' ) {
                 $result = [ 'status' => 'bypass',  'label' => 'BYPASS',             'server' => $server ];
-            } elseif ( str_contains( (string) $server, 'BunnyCDN' ) ) {
+            } elseif ( str_contains( $server, 'BunnyCDN' ) ) {
                 $result = [ 'status' => 'partial', 'label' => 'Via Bunny (no cache header)', 'server' => $server ];
             } else {
                 $result = [ 'status' => 'none',    'label' => 'Not via Bunny CDN',  'server' => $server ];
@@ -93,14 +92,14 @@ class SPC_Bunny_Stats {
     }
 
     private function fmt( int $bytes ): string {
-        if ( $bytes >= 1073741824 ) {
-            return round( $bytes / 1073741824, 2 ) . ' GB';
+        if ( $bytes >= 1_073_741_824 ) {
+            return round( $bytes / 1_073_741_824, 2 ) . ' GB';
         }
-        if ( $bytes >= 1048576 ) {
-            return round( $bytes / 1048576, 1 ) . ' MB';
+        if ( $bytes >= 1_048_576 ) {
+            return round( $bytes / 1_048_576, 1 ) . ' MB';
         }
-        if ( $bytes >= 1024 ) {
-            return round( $bytes / 1024, 1 ) . ' KB';
+        if ( $bytes >= 1_024 ) {
+            return round( $bytes / 1_024, 1 ) . ' KB';
         }
         return $bytes . ' B';
     }

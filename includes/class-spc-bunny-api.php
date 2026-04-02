@@ -1,4 +1,6 @@
 <?php
+declare( strict_types=1 );
+
 defined( 'ABSPATH' ) || exit;
 
 class SPC_Bunny_API {
@@ -8,18 +10,20 @@ class SPC_Bunny_API {
 
     private string $api_key;
     private string $zone_id;
+    private bool   $logging;
 
     public function __construct() {
-        $opts           = get_option( 'spc_bunny_settings', [] );
-        $this->api_key  = (string) ( $opts['api_key']      ?? '' );
-        $this->zone_id  = (string) ( $opts['pull_zone_id'] ?? '' );
+        $opts          = get_option( 'spc_bunny_settings', [] );
+        $this->api_key = (string) ( $opts['api_key']       ?? '' );
+        $this->zone_id = (string) ( $opts['pull_zone_id']  ?? '' );
+        $this->logging = ! empty( $opts['enable_logging'] );
     }
 
     public function is_configured(): bool {
         return $this->api_key !== '' && $this->zone_id !== '';
     }
 
-    public function purge_all(): bool|WP_Error {
+    public function purge_all(): true|WP_Error {
         if ( ! $this->is_configured() ) {
             return new WP_Error( 'not_configured', __( 'API key or Pull Zone ID not set.', 'spc-bunny' ) );
         }
@@ -30,29 +34,6 @@ class SPC_Bunny_API {
         }
         $this->log( 'Full purge OK.' );
         return true;
-    }
-
-    public function purge_url( string $url ): bool|WP_Error {
-        if ( ! $this->is_configured() ) {
-            return new WP_Error( 'not_configured', __( 'API key or Pull Zone ID not set.', 'spc-bunny' ) );
-        }
-        $result = $this->request( 'POST', self::API_BASE . '/purge?url=' . rawurlencode( $url ) . '&async=true' );
-        if ( is_wp_error( $result ) ) {
-            $this->log( 'purge_url failed ' . $url . ': ' . $result->get_error_message() );
-            return $result;
-        }
-        return true;
-    }
-
-    public function purge_urls( array $urls ): bool|WP_Error {
-        $err = null;
-        foreach ( $urls as $url ) {
-            $r = $this->purge_url( (string) $url );
-            if ( is_wp_error( $r ) ) {
-                $err = $r;
-            }
-        }
-        return $err ?? true;
     }
 
     public function get_pull_zones(): array|WP_Error {
@@ -66,7 +47,7 @@ class SPC_Bunny_API {
         return $result['Items'] ?? [];
     }
 
-    public function update_pull_zone( array $settings ): bool|WP_Error {
+    public function update_pull_zone( array $settings ): true|WP_Error {
         if ( ! $this->is_configured() ) {
             return new WP_Error( 'not_configured', __( 'API key or Pull Zone ID not set.', 'spc-bunny' ) );
         }
@@ -87,7 +68,7 @@ class SPC_Bunny_API {
         return $this->request( 'POST', self::ZONE_BASE . '/' . $this->zone_id . '/edgerules/addOrUpdate', $rule );
     }
 
-    public function delete_edge_rule( string $guid ): bool|WP_Error {
+    public function delete_edge_rule( string $guid ): true|WP_Error {
         if ( ! $this->is_configured() ) {
             return new WP_Error( 'not_configured', __( 'API key or Pull Zone ID not set.', 'spc-bunny' ) );
         }
@@ -160,8 +141,7 @@ class SPC_Bunny_API {
     }
 
     private function log( string $msg ): void {
-        $opts = get_option( 'spc_bunny_settings', [] );
-        if ( ! empty( $opts['enable_logging'] ) ) {
+        if ( $this->logging ) {
             error_log( '[SPC Bunny] ' . $msg );
         }
     }

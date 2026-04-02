@@ -1,4 +1,6 @@
 <?php
+declare( strict_types=1 );
+
 defined( 'ABSPATH' ) || exit;
 
 class SPC_Bunny_Hooks {
@@ -18,7 +20,7 @@ class SPC_Bunny_Hooks {
             add_action( 'transition_post_status', [ $this, 'on_post_status_change' ], 20, 3 );
             add_action( 'deleted_post',           [ $this, 'on_post_delete' ],        20    );
 
-            // REST API saves — Bricks Builder, Gutenberg, and all REST-based editors
+            // REST API saves — Bricks Builder, Gutenberg, all REST-based editors
             add_action( 'rest_after_insert_post', [ $this, 'on_rest_save' ], 20, 1 );
             add_action( 'rest_after_insert_page', [ $this, 'on_rest_save' ], 20, 1 );
             add_action( 'init', [ $this, 'register_cpt_rest_hooks' ], 99 );
@@ -31,9 +33,8 @@ class SPC_Bunny_Hooks {
             add_action( 'deactivated_plugin',        [ $this, 'on_purge_all' ]       );
         }
 
-        // SPC hooks are registered at the top level of spc-bunny-connector.php
-        // before plugins_loaded to guarantee they fire even if SPC runs its
-        // purge action early in the request lifecycle.
+        // SPC hooks are registered at file scope in spc-bunny-connector.php
+        // before plugins_loaded to guarantee correct load order.
 
         if ( ! empty( $opts['enable_admin_bar'] ) ) {
             add_action( 'admin_bar_menu', [ $this, 'admin_bar_button' ], 100 );
@@ -52,30 +53,6 @@ class SPC_Bunny_Hooks {
         }
     }
 
-    // ── SPC callbacks — only these two hooks, exactly as SPC team specified ───
-
-    /**
-     * swcfpc_cf_purge_whole_cache_after
-     * Fires after a full SPC cache flush. No arguments.
-     */
-    public function on_spc_full_purge(): void {
-        $this->purge->purge_all();
-        update_option( 'spc_bunny_spc_last_purge', current_time( 'mysql' ), false );
-    }
-
-    /**
-     * swcfpc_cf_purge_cache_by_urls_after
-     * Fires after SPC purges specific URLs (post save/update). Passes $urls array.
-     * We do a full Bunny purge regardless — per-URL purge is unreliable on Bunny
-     * due to URL variant mismatches (www/non-www, trailing slash, query strings).
-     *
-     * @param array $urls URLs that SPC just purged (passed by SPC, may be empty).
-     */
-    public function on_spc_url_purge( array $urls = [] ): void {
-        $this->purge->purge_all();
-        update_option( 'spc_bunny_spc_last_purge', current_time( 'mysql' ), false );
-    }
-
     // ── WP / REST callbacks ───────────────────────────────────────────────────
 
     public function on_post_save( int $post_id, WP_Post $post ): void {
@@ -85,6 +62,7 @@ class SPC_Bunny_Hooks {
         if ( $post->post_status !== 'publish' ) {
             return;
         }
+        /** @var string[] $watched */
         $watched = (array) apply_filters( 'spc_bunny_watched_post_types', [ 'post', 'page' ] );
         if ( in_array( $post->post_type, $watched, true ) ) {
             $this->purge->purge_post( $post_id );
@@ -111,7 +89,7 @@ class SPC_Bunny_Hooks {
         }
     }
 
-    public function on_upgrade( $upgrader, array $hook_extra ): void {
+    public function on_upgrade( WP_Upgrader $upgrader, array $hook_extra ): void {
         if ( isset( $hook_extra['type'] ) && in_array( $hook_extra['type'], [ 'plugin', 'theme', 'core' ], true ) ) {
             $this->purge->purge_all();
         }
@@ -123,12 +101,13 @@ class SPC_Bunny_Hooks {
 
     // ── Admin bar ─────────────────────────────────────────────────────────────
 
-    public function admin_bar_button( $bar ): void {
+    public function admin_bar_button( WP_Admin_Bar $bar ): void {
         if ( ! is_admin() || ! is_admin_bar_showing() || ! current_user_can( 'manage_options' ) ) {
             return;
         }
-        $api = new SPC_Bunny_API();
-        if ( ! $api->is_configured() ) {
+        // Check configuration without instantiating a full API object
+        $opts = get_option( 'spc_bunny_settings', [] );
+        if ( empty( $opts['api_key'] ) || empty( $opts['pull_zone_id'] ) ) {
             return;
         }
         $bar->add_node( [
@@ -150,17 +129,17 @@ class SPC_Bunny_Hooks {
         $this->purge->purge_all();
         $log  = get_option( 'spc_bunny_purge_log', [] );
         $last = $log[0] ?? null;
-        if ( $last && $last['success'] ) {
+        if ( is_array( $last ) && $last['success'] ) {
             wp_send_json_success( [ 'message' => __( 'Cache purged.', 'spc-bunny' ) ] );
         } else {
-            wp_send_json_error( [ 'message' => $last['message'] ?? __( 'Unknown error.', 'spc-bunny' ) ] );
+            wp_send_json_error( [ 'message' => is_array( $last ) ? $last['message'] : __( 'Unknown error.', 'spc-bunny' ) ] );
         }
     }
 
     public function ajax_admin_bar_purge(): void {
         check_ajax_referer( 'spc_bunny_admin_bar_purge', 'nonce' );
         if ( ! current_user_can( 'manage_options' ) ) {
-            wp_send_json_error();
+            wp_send_json_error( [ 'message' => __( 'Permission denied.', 'spc-bunny' ) ] );
             return;
         }
         $this->purge->purge_all();

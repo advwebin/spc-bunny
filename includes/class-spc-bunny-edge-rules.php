@@ -1,4 +1,5 @@
 <?php
+declare( strict_types=1 );
 defined( 'ABSPATH' ) || exit;
 
 class SPC_Bunny_Edge_Rules {
@@ -501,7 +502,7 @@ class SPC_Bunny_Edge_Rules {
         return in_array( $key, $enabled, true );
     }
 
-    private function upsert_batches( string $base, string $label, string $cache_time, array $patterns, array $guids, array &$results, int $order_index = 10, int $browser_cache = null, int $action_type_override = null ): array {
+    private function upsert_batches( string $base, string $label, string $cache_time, array $patterns, array $guids, array &$results, int $order_index = 10, ?int $browser_cache = null, ?int $action_type_override = null ): array {
         $chunks = array_chunk( $patterns, self::MAX_PATTERNS );
         $total  = count( $chunks );
         foreach ( $chunks as $i => $chunk ) {
