@@ -99,9 +99,8 @@ All 19 rules, in deployment order:
 | 19 | Security headers | `X-Content-Type-Options: nosniff`, `X-Frame-Options: SAMEORIGIN`, `Referrer-Policy: strict-origin-when-cross-origin`, `X-XSS-Protection: 1; mode=block` on all responses. |
 
 
-### Note:
+Note: With adding all the edge rules, you'll press Update Edge Rules and there might be an error. Press Update Edge Rules again and it will work. It might be becasue  alot of edge rules getting set at once. When there was less rules there was no error the first try. 
 
-With adding all the edge rules, you'll press Update Edge Rules and there might be an error. Press Update Edge Rules again and it will work. It might be becasue  alot of edge rules getting set at once. When there was less rules there was no error the first try. 
 ---
 
 ## Cache Warmer
