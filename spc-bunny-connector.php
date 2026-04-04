@@ -3,7 +3,7 @@
  * Plugin Name: SPC Bunny Connector
  * Plugin URI:  https://nahnumedia.com
  * Description: Integrates Super Page Cache with Bunny.net CDN. Purges Bunny Pull Zone HTML cache on SPC events, deploys Edge Rules for full HTML caching, shows live CDN stats, warms cache after purges.
- * Version:     2.0.6
+ * Version:     2.0.9
  * Author:      Nahnu Media
  * Author URI:  https://nahnumedia.com
  * License:     GPL-2.0+
@@ -14,7 +14,7 @@ declare( strict_types=1 );
 
 defined( 'ABSPATH' ) || exit;
 
-define( 'SPC_BUNNY_VERSION', '2.0.6' );
+define( 'SPC_BUNNY_VERSION', '2.0.9' );
 define( 'SPC_BUNNY_FILE',    __FILE__ );
 define( 'SPC_BUNNY_DIR',     plugin_dir_path( __FILE__ ) );
 define( 'SPC_BUNNY_URL',     plugin_dir_url( __FILE__ ) );

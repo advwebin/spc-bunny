@@ -25,7 +25,7 @@ function spc_bunny_init_updater(): void {
         'api_url'             => 'https://api.github.com/repos/jaimealnassim/SPC-Bunny',
         'raw_url'             => 'https://raw.githubusercontent.com/jaimealnassim/SPC-Bunny/main',
         'github_url'          => 'https://github.com/jaimealnassim/SPC-Bunny',
-        'zip_url'             => 'https://github.com/jaimealnassim/SPC-Bunny/archive/refs/heads/main.zip',
+        'zip_url'             => 'https://github.com/jaimealnassim/SPC-Bunny/zipball/main',
         'requires'            => '6.0',
         'tested'              => '6.7',
         'readme'              => 'README.md',

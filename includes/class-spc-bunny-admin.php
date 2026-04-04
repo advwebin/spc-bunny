@@ -16,7 +16,8 @@ class SPC_Bunny_Admin {
         add_action( 'wp_ajax_spc_bunny_fetch_stats',     [ $this, 'ajax_stats'  ] );
         add_action( 'wp_ajax_spc_bunny_warm_now',        [ $this, 'ajax_warm'   ] );
         add_action( 'wp_ajax_spc_bunny_deploy_rules',    [ $this, 'ajax_deploy' ] );
-        add_action( 'wp_ajax_spc_bunny_remove_rules',    [ $this, 'ajax_remove'      ] );
+        add_action( 'wp_ajax_spc_bunny_update_rules',    [ $this, 'ajax_update' ] );
+        add_action( 'wp_ajax_spc_bunny_remove_rules',    [ $this, 'ajax_remove' ] );
         add_action( 'wp_ajax_spc_bunny_sync_status',     [ $this, 'ajax_sync_status'      ] );
         add_action( 'wp_ajax_spc_bunny_test_perma_cache', [ $this, 'ajax_test_perma_cache' ] );
         add_action( 'wp_ajax_spc_bunny_fetch_dns_zones',  [ $this, 'ajax_fetch_dns_zones'  ] );
@@ -80,6 +81,7 @@ class SPC_Bunny_Admin {
             'nonceStats'    => wp_create_nonce( 'spc_bunny_fetch_stats' ),
             'nonceWarm'     => wp_create_nonce( 'spc_bunny_warm_now' ),
             'nonceDeploy'   => wp_create_nonce( 'spc_bunny_deploy_rules' ),
+            'nonceUpdate'   => wp_create_nonce( 'spc_bunny_update_rules' ),
             'nonceRemove'   => wp_create_nonce( 'spc_bunny_remove_rules' ),
             'i18n'          => [
                 'testing'       => __( 'Testing...', 'spc-bunny' ),
@@ -89,7 +91,9 @@ class SPC_Bunny_Admin {
                 'purging'       => __( 'Purging...', 'spc-bunny' ),
                 'purgeOk'       => __( 'Cache purged', 'spc-bunny' ),
                 'deploying'     => __( 'Deploying...', 'spc-bunny' ),
+                'updating'      => __( 'Removing then redeploying...', 'spc-bunny' ),
                 'deployOk'      => __( 'Edge rules deployed', 'spc-bunny' ),
+                'updateOk'      => __( 'Edge rules updated', 'spc-bunny' ),
                 'removing'      => __( 'Removing...', 'spc-bunny' ),
                 'removeOk'      => __( 'Edge rules removed', 'spc-bunny' ),
                 'confirmRemove' => __( 'Remove all SPC Bunny edge rules from Bunny CDN?', 'spc-bunny' ),
@@ -268,6 +272,26 @@ class SPC_Bunny_Admin {
         update_option( 'spc_bunny_settings', $settings, false );
         $result = ( new SPC_Bunny_Edge_Rules() )->deploy( $ttl, $force_cache );
         $result['success'] ? wp_send_json_success( $result ) : wp_send_json_error( $result );
+    }
+
+    public function ajax_update(): void {
+        check_ajax_referer( 'spc_bunny_update_rules', 'nonce' );
+        if ( ! current_user_can( 'manage_options' ) ) { wp_send_json_error( [ 'message' => 'Unauthorized' ] ); }
+        // deploy() does a full wipe of all existing rules before recreating,
+        // so no separate remove_all() call is needed here.
+        $er  = new SPC_Bunny_Edge_Rules();
+        $ttl = isset( $_POST['ttl'] ) ? (int) $_POST['ttl'] : 604800;
+        $force_cache = ! empty( $_POST['force_cache'] );
+        if ( ! empty( $_POST['custom_bypass_paths'] ) ) {
+            $opts = get_option( 'spc_bunny_settings', [] );
+            $opts['custom_bypass_paths'] = sanitize_textarea_field( wp_unslash( $_POST['custom_bypass_paths'] ) );
+            if ( isset( $_POST['enabled_rules'] ) && is_array( $_POST['enabled_rules'] ) ) {
+                $opts['enabled_rules'] = array_map( 'sanitize_key', $_POST['enabled_rules'] );
+            }
+            update_option( 'spc_bunny_settings', $opts );
+        }
+        $result = $er->deploy( $ttl, $force_cache );
+        wp_send_json( $result );
     }
 
     public function ajax_remove(): void {
@@ -703,8 +727,9 @@ class SPC_Bunny_Admin {
                 </div>
 
                 <div class="spc-bunny-actions">
-                    <button id="js-deploy" class="button button-primary" <?php disabled( ! $api->is_configured() ); ?>><?php echo $is_deployed ? esc_html__( 'Update Edge Rules', 'spc-bunny' ) : esc_html__( 'Deploy Edge Rules', 'spc-bunny' ); ?></button>
-                    <?php if ( $is_deployed ) : ?><button id="js-remove" class="button spc-bunny-remove-btn"><?php esc_html_e( 'Remove All', 'spc-bunny' ); ?></button><?php endif; ?>
+                    <button id="js-deploy" class="button button-primary" <?php disabled( ! $api->is_configured() ); ?>><?php esc_html_e( 'Deploy Edge Rules', 'spc-bunny' ); ?></button>
+                    <button id="js-update" class="button button-secondary" <?php disabled( ! $api->is_configured() ); ?>><?php esc_html_e( 'Update Edge Rules', 'spc-bunny' ); ?></button>
+                    <button id="js-remove" class="button spc-bunny-remove-btn" <?php disabled( ! $api->is_configured() ); ?>><?php esc_html_e( 'Remove All Rules', 'spc-bunny' ); ?></button>
                     <span id="js-deploy-result" class="spc-bunny-inline" aria-live="polite"></span>
                 </div>
 
