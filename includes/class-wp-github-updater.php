@@ -390,8 +390,13 @@ class WP_GitHub_Updater {
 	 */
 	public function get_plugin_info( $false, $action, $response ) {
 
-		// Check if this call API is for the right plugin
-		if ( !isset( $response->slug ) || $response->slug != $this->config['slug'] )
+		// WordPress passes just the folder name as slug (e.g. "spc-bunny-connector"),
+		// but config['slug'] is the full path ("spc-bunny-connector/spc-bunny-connector.php").
+		// Match against either form.
+		if ( ! isset( $response->slug ) )
+			return false;
+		$folder = dirname( $this->config['slug'] );
+		if ( $response->slug !== $this->config['slug'] && $response->slug !== $folder )
 			return false;
 
 		$response->slug = $this->config['slug'];
