@@ -62,6 +62,25 @@ class SPC_Bunny_Edge_Rules {
             }
         }
 
+        // Delete ALL edge rules on the pull zone before deploying fresh.
+        // This guarantees no OrderIndex conflicts regardless of what was previously
+        // deployed — including rules from older versions with different descriptions,
+        // or rules created manually in the Bunny dashboard.
+        $live_rules = $this->api->get_edge_rules();
+        if ( ! is_wp_error( $live_rules ) && is_array( $live_rules ) ) {
+            foreach ( $live_rules as $rule ) {
+                $guid = $rule['Guid'] ?? '';
+                if ( $guid ) {
+                    $this->api->delete_edge_rule( $guid );
+                }
+            }
+        }
+        // Clear stored GUIDs — everything will be created fresh below
+        $guids = [];
+
+        // Brief pause to let Bunny propagate the deletions before we re-create.
+        sleep( 1 );
+
         // ── Pull Zone settings ────────────────────────────────────────────────
         $pz = $this->api->update_pull_zone( [
             'DisableSmartCache'          => true,
@@ -206,7 +225,7 @@ class SPC_Bunny_Edge_Rules {
         // must never be served from cache. Bunny's RequestMethod trigger (Type 6)
         // fires before any cache lookup, overriding CacheControlMaxAgeOverride.
         $guids = $this->upsert( self::RULE_BYPASS_POST, [
-            'OrderIndex'          => 9,   // same slot — Bunny allows duplicate indices
+            'OrderIndex'          => 9,
             'ActionType'          => 3,   // BypassCache
             'ActionParameter1'    => '0',
             'TriggerMatchingType' => 0,   // MatchAny
@@ -387,19 +406,43 @@ class SPC_Bunny_Edge_Rules {
     }
 
     public function remove_all(): array {
-        $guids   = get_option( self::GUIDS_OPT, [] );
         $results = [];
-        foreach ( $guids as $key => $guid ) {
+
+        // Fetch live rules from Bunny and delete every [SPC Bunny] rule,
+        // regardless of whether we have its GUID stored locally.
+        $live = $this->api->get_edge_rules();
+        if ( ! is_wp_error( $live ) ) {
+            foreach ( $live as $rule ) {
+                $guid = $rule['Guid'] ?? '';
+                $desc = $rule['Description'] ?? '';
+                if ( ! $guid || ! str_starts_with( $desc, '[SPC Bunny]' ) ) {
+                    continue;
+                }
+                $r = $this->api->delete_edge_rule( $guid );
+                $results[ $guid ] = [
+                    'label'   => $desc,
+                    'success' => ! is_wp_error( $r ),
+                    'message' => is_wp_error( $r ) ? $r->get_error_message() : 'Deleted',
+                ];
+            }
+        }
+
+        // Also delete anything in our stored GUIDs not caught above (edge case)
+        foreach ( get_option( self::GUIDS_OPT, [] ) as $key => $guid ) {
+            if ( isset( $results[ $guid ] ) ) {
+                continue;
+            }
             $r = $this->api->delete_edge_rule( $guid );
-            $results[ $key ] = [
+            $results[ $guid ] = [
                 'label'   => $key,
                 'success' => ! is_wp_error( $r ),
                 'message' => is_wp_error( $r ) ? $r->get_error_message() : 'Deleted',
             ];
         }
+
         delete_option( self::GUIDS_OPT );
-        $all_ok = ! in_array( false, array_column( $results, 'success' ), true );
-        return [ 'success' => $all_ok, 'results' => $results ];
+        $all_ok = empty( $results ) || ! in_array( false, array_column( $results, 'success' ), true );
+        return [ 'success' => $all_ok, 'results' => array_values( $results ) ];
     }
 
     public function get_deployed_guids(): array {
@@ -563,24 +606,23 @@ class SPC_Bunny_Edge_Rules {
     }
 
     private function upsert( string $key, array $rule, array $guids, array &$results ): array {
-        // Skip deployment if disabled in settings; delete from Bunny if previously deployed
         if ( ! $this->is_rule_enabled( $key ) ) {
-            if ( ! empty( $guids[ $key ] ) ) {
-                $this->api->delete_edge_rule( $guids[ $key ] );
-                unset( $guids[ $key ] );
-            }
             return $guids;
         }
-        $guid     = $guids[ $key ] ?? null;
-        $response = $this->api->upsert_edge_rule( $rule, $guid );
+        $response = $this->api->upsert_edge_rule( $rule, null );
         if ( is_wp_error( $response ) ) {
-            $results[ $key ] = [ 'label' => $rule['Description'], 'success' => false, 'message' => $response->get_error_message() ];
+            $msg = $response->get_error_message();
+            // Translate the Bunny "Order index must be unique" error into plain English
+            if ( str_contains( $msg, 'Order index must be unique' ) || str_contains( $msg, 'edgerule.invalid' ) ) {
+                $msg = __( 'Rule already exists at this slot — click Deploy again to retry after the previous wipe completes.', 'spc-bunny' );
+            }
+            $results[ $key ] = [ 'label' => $rule['Description'], 'success' => false, 'message' => $msg ];
             return $guids;
         }
-        $new_guid = $response['Guid'] ?? $guid;
-        $results[ $key ] = [ 'label' => $rule['Description'], 'success' => true, 'message' => $guid ? 'Updated' : 'Created' ];
-        if ( $new_guid ) {
-            $guids[ $key ] = $new_guid;
+        $guid = $response['Guid'] ?? null;
+        $results[ $key ] = [ 'label' => $rule['Description'], 'success' => true, 'message' => 'Created' ];
+        if ( $guid ) {
+            $guids[ $key ] = $guid;
         }
         return $guids;
     }

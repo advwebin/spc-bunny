@@ -68,6 +68,17 @@ class SPC_Bunny_API {
         return $this->request( 'POST', self::ZONE_BASE . '/' . $this->zone_id . '/edgerules/addOrUpdate', $rule );
     }
 
+    public function get_edge_rules(): array|WP_Error {
+        if ( ! $this->is_configured() ) {
+            return new WP_Error( 'not_configured', __( 'API key or Pull Zone ID not set.', 'spc-bunny' ) );
+        }
+        $result = $this->request( 'GET', self::ZONE_BASE . '/' . $this->zone_id . '/edgerules' );
+        if ( is_wp_error( $result ) ) {
+            return $result;
+        }
+        return is_array( $result ) ? $result : [];
+    }
+
     public function delete_edge_rule( string $guid ): true|WP_Error {
         if ( ! $this->is_configured() ) {
             return new WP_Error( 'not_configured', __( 'API key or Pull Zone ID not set.', 'spc-bunny' ) );

@@ -135,7 +135,7 @@ class SPC_Bunny_Admin {
         if ( is_wp_error( $stats ) ) { wp_send_json_error( [ 'message' => $stats->get_error_message() ] ); return; }
         $bunny_last = get_option( 'spc_bunny_last_purge', '' );
         $spc_last   = get_option( 'spc_bunny_spc_last_purge', '' );
-        $in_sync    = $bunny_last && $spc_last && ( abs( strtotime( $bunny_last ) - strtotime( $spc_last ) ) <= 10 );
+        $in_sync    = $bunny_last && $spc_last && ( abs( strtotime( $bunny_last ) - strtotime( $spc_last ) ) <= 30 );
         wp_send_json_success( [
             'stats'      => $stats,
             'health'     => $health,
@@ -150,7 +150,7 @@ class SPC_Bunny_Admin {
         if ( ! current_user_can( 'manage_options' ) ) { wp_send_json_error(); return; }
         $bunny_last = get_option( 'spc_bunny_last_purge', '' );
         $spc_last   = get_option( 'spc_bunny_spc_last_purge', '' );
-        $in_sync    = $bunny_last && $spc_last && ( abs( strtotime( $bunny_last ) - strtotime( $spc_last ) ) <= 10 );
+        $in_sync    = $bunny_last && $spc_last && ( abs( strtotime( $bunny_last ) - strtotime( $spc_last ) ) <= 30 );
         wp_send_json_success( [
             'bunny_last' => $bunny_last,
             'spc_last'   => $spc_last,
@@ -377,7 +377,7 @@ class SPC_Bunny_Admin {
                 $bunny_last  = get_option( 'spc_bunny_last_purge', '' );
                 $spc_last    = get_option( 'spc_bunny_spc_last_purge', '' );
                 $both_set    = $bunny_last && $spc_last;
-                $in_sync     = $both_set && ( abs( strtotime( $bunny_last ) - strtotime( $spc_last ) ) <= 10 );
+                $in_sync     = $both_set && ( abs( strtotime( $bunny_last ) - strtotime( $spc_last ) ) <= 30 );
                 ?>
                 <div class="spc-bunny-card spc-bunny-sync-card">
                     <h2><?php esc_html_e( 'Cache Sync Status', 'spc-bunny' ); ?></h2>
