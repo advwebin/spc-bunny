@@ -16,6 +16,7 @@ class SPC_Bunny_Edge_Rules {
     public const RULE_ADMIN_DISABLE_OPT      = 'admin_disable_optimizer'; // 6  — Optimizer for admin
     public const RULE_BYPASS_CRON            = 'bypass_cron';             // 7  — wp-cron.php
     public const RULE_BYPASS_REST            = 'bypass_rest';             // 8  — REST API
+    public const RULE_BYPASS_POST            = 'bypass_post';             // 8b — POST requests (forms, AJAX)
     public const RULE_BYPASS_FEEDS           = 'bypass_feeds';            // 9  — RSS/Atom feeds
     public const RULE_BYPASS_WOO             = 'bypass_woo';              // 10 — WooCommerce pages
     public const RULE_BYPASS_WOO_COOKIE      = 'bypass_woo_cookie';       // 11 — WooCommerce cookies
@@ -53,7 +54,7 @@ class SPC_Bunny_Edge_Rules {
         $guids   = get_option( self::GUIDS_OPT, [] );
 
         // Clean up stale GUIDs from removed rules
-        $stale_keys = [ 'uploads_bypass_perma_cache' ];
+        $stale_keys = [ 'uploads_bypass_perma_cache', 'bypass_forms' ];
         foreach ( $stale_keys as $stale ) {
             if ( ! empty( $guids[ $stale ] ) ) {
                 $this->api->delete_edge_rule( $guids[ $stale ] );
@@ -196,6 +197,24 @@ class SPC_Bunny_Edge_Rules {
             'Triggers'            => [ [
                 'Type'                => 0,
                 'PatternMatches'      => array_values( array_unique( [ "https://{$h}/wp-json/*", "https://{$hwww}/wp-json/*" ] ) ),
+                'PatternMatchingType' => 0,
+            ] ],
+        ], $guids, $results );
+
+        // ── Rule 8b: Bypass — POST requests ──────────────────────────────────
+        // All HTTP POST requests (form submissions, AJAX writes, REST mutations)
+        // must never be served from cache. Bunny's RequestMethod trigger (Type 6)
+        // fires before any cache lookup, overriding CacheControlMaxAgeOverride.
+        $guids = $this->upsert( self::RULE_BYPASS_POST, [
+            'OrderIndex'          => 8,   // same slot — Bunny allows duplicate indices
+            'ActionType'          => 3,   // BypassCache
+            'ActionParameter1'    => '0',
+            'TriggerMatchingType' => 0,   // MatchAny
+            'Description'         => '[SPC Bunny] Bypass: POST requests (forms/AJAX)',
+            'Enabled'             => true,
+            'Triggers'            => [ [
+                'Type'                => 6,   // RequestMethod
+                'PatternMatches'      => [ 'POST' ],
                 'PatternMatchingType' => 0,
             ] ],
         ], $guids, $results );
