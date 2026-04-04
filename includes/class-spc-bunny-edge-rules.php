@@ -220,7 +220,7 @@ class SPC_Bunny_Edge_Rules {
             ] ],
         ], $guids, $results );
 
-        // ── Rule 8b: Bypass — POST requests ──────────────────────────────────
+        // ── Rule 9: Bypass — POST requests ───────────────────────────────────
         // All HTTP POST requests (form submissions, AJAX writes, REST mutations)
         // must never be served from cache. Bunny's RequestMethod trigger (Type 6)
         // fires before any cache lookup, overriding CacheControlMaxAgeOverride.
@@ -609,7 +609,7 @@ class SPC_Bunny_Edge_Rules {
         if ( ! $this->is_rule_enabled( $key ) ) {
             return $guids;
         }
-        $response = $this->api->upsert_edge_rule( $rule, null );
+        $response = $this->api->upsert_edge_rule( $rule );
         if ( is_wp_error( $response ) ) {
             $msg = $response->get_error_message();
             // Translate the Bunny "Order index must be unique" error into plain English

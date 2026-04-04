@@ -134,8 +134,9 @@ class SPC_Bunny_Admin {
         check_ajax_referer( 'spc_bunny_fetch_stats', 'nonce' );
         if ( ! current_user_can( 'manage_options' ) ) { wp_send_json_error(); return; }
         $days   = absint( $_POST['days'] ?? 7 );
-        $stats  = ( new SPC_Bunny_Stats() )->get( $days );
-        $health = ( new SPC_Bunny_Stats() )->get_cache_status();
+        $stats_obj = new SPC_Bunny_Stats();
+        $stats     = $stats_obj->get( $days );
+        $health    = $stats_obj->get_cache_status();
         if ( is_wp_error( $stats ) ) { wp_send_json_error( [ 'message' => $stats->get_error_message() ] ); return; }
         $bunny_last = get_option( 'spc_bunny_last_purge', '' );
         $spc_last   = get_option( 'spc_bunny_spc_last_purge', '' );
@@ -260,7 +261,7 @@ class SPC_Bunny_Admin {
     public function ajax_deploy(): void {
         check_ajax_referer( 'spc_bunny_deploy_rules', 'nonce' );
         if ( ! current_user_can( 'manage_options' ) ) { wp_send_json_error(); return; }
-        $ttl         = absint( $_POST['ttl']         ?? 604800 );
+        $ttl         = absint( wp_unslash( $_POST['ttl'] ?? 604800 ) );
         $force_cache = ! empty( $_POST['force_cache'] );
         update_option( 'spc_bunny_edge_ttl',    $ttl,         false );
         update_option( 'spc_bunny_force_cache', $force_cache, false );
@@ -276,21 +277,16 @@ class SPC_Bunny_Admin {
 
     public function ajax_update(): void {
         check_ajax_referer( 'spc_bunny_update_rules', 'nonce' );
-        if ( ! current_user_can( 'manage_options' ) ) { wp_send_json_error( [ 'message' => 'Unauthorized' ] ); }
-        // deploy() does a full wipe of all existing rules before recreating,
-        // so no separate remove_all() call is needed here.
-        $er  = new SPC_Bunny_Edge_Rules();
-        $ttl = isset( $_POST['ttl'] ) ? (int) $_POST['ttl'] : 604800;
+        if ( ! current_user_can( 'manage_options' ) ) { wp_send_json_error( [ 'message' => __( 'Permission denied.', 'spc-bunny' ) ] ); return; }
+        // deploy() wipes all rules before recreating — no separate remove_all() needed.
+        $ttl         = absint( wp_unslash( $_POST['ttl'] ?? 604800 ) );
         $force_cache = ! empty( $_POST['force_cache'] );
-        if ( ! empty( $_POST['custom_bypass_paths'] ) ) {
-            $opts = get_option( 'spc_bunny_settings', [] );
-            $opts['custom_bypass_paths'] = sanitize_textarea_field( wp_unslash( $_POST['custom_bypass_paths'] ) );
-            if ( isset( $_POST['enabled_rules'] ) && is_array( $_POST['enabled_rules'] ) ) {
-                $opts['enabled_rules'] = array_map( 'sanitize_key', $_POST['enabled_rules'] );
-            }
-            update_option( 'spc_bunny_settings', $opts );
-        }
-        $result = $er->deploy( $ttl, $force_cache );
+        $settings    = get_option( 'spc_bunny_settings', [] );
+        $settings['custom_bypass_paths'] = sanitize_textarea_field( wp_unslash( $_POST['custom_bypass_paths'] ?? '' ) );
+        $raw_enabled = $_POST['enabled_rules'] ?? null;
+        $settings['enabled_rules'] = is_array( $raw_enabled ) ? array_map( 'sanitize_key', $raw_enabled ) : null;
+        update_option( 'spc_bunny_settings', $settings );
+        $result = ( new SPC_Bunny_Edge_Rules() )->deploy( $ttl, $force_cache );
         wp_send_json( $result );
     }
 
