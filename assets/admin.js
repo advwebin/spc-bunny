@@ -184,6 +184,18 @@ jQuery( function ( $ ) {
             .always( function () { $btn.prop( 'disabled', false ).text( 'Purge Entire CDN Cache' ); } );
     } );
 
+    // ── Single URL purge ──────────────────────────────────────────────────
+    $( '#js-purge-url' ).on( 'click', function () {
+        var url = $( '#spc_purge_url' ).val();
+        if ( ! url ) { setResult( $( '#js-purge-url-result' ), 'Enter a URL.', false ); return; }
+        var $btn = $( this ), $res = $( '#js-purge-url-result' );
+        $btn.prop( 'disabled', true ).text( cfg.i18n.purging );
+        post( 'spc_bunny_purge_url', cfg.noncePurgeUrl, { url: url } )
+            .then( function ( res ) { setResult( $res, res.success ? res.data.message : cfg.i18n.error + ( res.data && res.data.message ? res.data.message : '' ), res.success ); } )
+            .catch( function () { setResult( $res, cfg.i18n.error + 'Request failed.', false ); } )
+            .always( function () { $btn.prop( 'disabled', false ).text( 'Purge URL' ); } );
+    } );
+
     // ── Perma-Cache ───────────────────────────────────────────────────────────────
     function permaParams() {
         return {
@@ -191,14 +203,13 @@ jQuery( function ( $ ) {
             zone_password: $( '#spc_perma_zone_password' ).val() || '',
             region:        $( '#spc_perma_region' ).val()        || 'de',
             keep:          $( '#spc_perma_keep' ).val()          || '1',
-            nonce:         cfg.noncePurge,
         };
     }
 
     $( '#js-test-perma' ).on( 'click', function () {
         var $btn = $( this ), $res = $( '#js-perma-result' );
         $btn.prop( 'disabled', true ).text( 'Testing...' );
-        $.post( cfg.ajaxUrl, $.extend( { action: 'spc_bunny_test_perma_cache' }, permaParams() ) )
+        $.post( cfg.ajaxUrl, $.extend( { action: 'spc_bunny_test_perma_cache', nonce: cfg.nonceTestPerma }, permaParams() ) )
             .then( function ( r ) { setResult( $res, r.success ? r.data.message : cfg.i18n.error + ( r.data && r.data.message ? r.data.message : '' ), r.success ); } )
             .catch( function () { setResult( $res, cfg.i18n.error + 'Request failed.', false ); } )
             .always( function () { $btn.prop( 'disabled', false ).text( 'Test Connection' ); } );
@@ -208,7 +219,7 @@ jQuery( function ( $ ) {
         if ( ! confirm( 'This will permanently delete old Perma-Cache directories from your storage zone. Continue?' ) ) { return; }
         var $btn = $( this ), $res = $( '#js-perma-result' );
         $btn.prop( 'disabled', true ).text( 'Cleaning up...' );
-        $.post( cfg.ajaxUrl, $.extend( { action: 'spc_bunny_cleanup_perma' }, permaParams() ) )
+        $.post( cfg.ajaxUrl, $.extend( { action: 'spc_bunny_cleanup_perma', nonce: cfg.nonceCleanupPerma }, permaParams() ) )
             .then( function ( r ) { setResult( $res, r.success ? r.data.message : cfg.i18n.error + ( r.data && r.data.message ? r.data.message : '' ), r.success ); } )
             .catch( function () { setResult( $res, cfg.i18n.error + 'Request failed.', false ); } )
             .always( function () { $btn.prop( 'disabled', false ).text( 'Run Cleanup Now' ); } );
@@ -225,23 +236,56 @@ jQuery( function ( $ ) {
         var $btn = $( this ), $res = $( '#js-deploy-result' );
         var ttl        = $( '#js-ttl' ).val();
         var forceCache = $( 'input[name="js-force-cache"]:checked' ).val() || '0';
-            var customPaths = $( '#spc_custom_bypass' ).val() || '';
+        var customPaths = $( '#spc_custom_bypass' ).val() || '';
         $btn.prop( 'disabled', true ).text( cfg.i18n.deploying );
         $( '#js-deploy-table' ).attr( 'hidden', true );
+        $( '#js-update' ).prop( 'disabled', true );
+        $( '#js-remove' ).prop( 'disabled', true );
         post( 'spc_bunny_deploy_rules', cfg.nonceDeploy, { ttl: ttl, force_cache: forceCache, custom_bypass_paths: customPaths, enabled_rules: $( 'input[name="spc_bunny_rule_enabled[]"]:checked' ).map( function() { return $( this ).val(); } ).get() } )
             .then( function ( res ) {
-                var data = res.data || {}, results = data.results || {}, rows = '';
-                $.each( results, function ( k, r ) {
-                    var pill = r.success ? '<span class="spc-bunny-pill is-ok">OK</span>' : '<span class="spc-bunny-pill is-err">Error</span>';
-                    rows += '<tr><td>' + $( '<div>' ).text( r.label ).html() + '</td><td>' + pill + '</td><td>' + $( '<div>' ).text( r.message ).html() + '</td></tr>';
-                } );
-                if ( rows ) { $( '#js-deploy-rows' ).html( rows ); $( '#js-deploy-table' ).removeAttr( 'hidden' ); }
-                setResult( $res, res.success ? cfg.i18n.deployOk : cfg.i18n.error + ( data.message || '' ), res.success );
-                if ( res.success ) { setTimeout( function () { location.reload(); }, 1800 ); }
+                if ( ! res.success ) {
+                    setResult( $res, cfg.i18n.error + ( res.data && res.data.message ? res.data.message : '' ), false );
+                    $btn.prop( 'disabled', false ).text( 'Deploy Edge Rules' );
+                    $( '#js-update' ).prop( 'disabled', false );
+                    $( '#js-remove' ).prop( 'disabled', false );
+                    return;
+                }
+                // Poll for status
+                var pollCount = 0, pollMax = 60;
+                var pollTimer = setInterval( function () {
+                    pollCount++;
+                    if ( pollCount > pollMax ) {
+                        clearInterval( pollTimer );
+                        setResult( $res, 'Deploy timed out. Check Purge Log.', false );
+                        $btn.prop( 'disabled', false ).text( 'Deploy Edge Rules' );
+                        $( '#js-update' ).prop( 'disabled', false );
+                        $( '#js-remove' ).prop( 'disabled', false );
+                        return;
+                    }
+                    $.post( cfg.ajaxUrl, { action: 'spc_bunny_deploy_status', nonce: cfg.nonceDeployStatus } )
+                        .then( function ( sr ) {
+                            if ( ! sr.success ) { return; }
+                            var s = sr.data.status;
+                            if ( s === 'complete' || s === 'failed' || s === 'timeout' ) {
+                                clearInterval( pollTimer );
+                                var results = sr.data.results || {}, rows = '';
+                                $.each( results, function ( k, r ) {
+                                    var pill = r.success ? '<span class="spc-bunny-pill is-ok">OK</span>' : '<span class="spc-bunny-pill is-err">Error</span>';
+                                    rows += '<tr><td>' + $( '<div>' ).text( r.label ).html() + '</td><td>' + pill + '</td><td>' + $( '<div>' ).text( r.message ).html() + '</td></tr>';
+                                } );
+                                if ( rows ) { $( '#js-deploy-rows' ).html( rows ); $( '#js-deploy-table' ).removeAttr( 'hidden' ); }
+                                setResult( $res, s === 'complete' ? cfg.i18n.deployOk : cfg.i18n.error + 'Deploy ' + s, s === 'complete' );
+                                $btn.prop( 'disabled', false ).text( 'Deploy Edge Rules' );
+                                $( '#js-update' ).prop( 'disabled', false );
+                                $( '#js-remove' ).prop( 'disabled', false );
+                                if ( s === 'complete' ) { setTimeout( function () { location.reload(); }, 1800 ); }
+                            }
+                        } );
+                }, 5000 );
             } )
-            .catch( function () { setResult( $res, cfg.i18n.error + 'Request failed.', false ); } )
-            .always( function () {
-                $btn.prop( 'disabled', false );
+            .catch( function () {
+                setResult( $res, cfg.i18n.error + 'Request failed.', false );
+                $btn.prop( 'disabled', false ).text( 'Deploy Edge Rules' );
                 $( '#js-update' ).prop( 'disabled', false );
                 $( '#js-remove' ).prop( 'disabled', false );
             } );
@@ -270,13 +314,14 @@ jQuery( function ( $ ) {
             data: { action: 'spc_bunny_update_rules', nonce: cfg.nonceUpdate, ttl: ttl, force_cache: forceCache, custom_bypass_paths: customPaths, enabled_rules: $( 'input[name="spc_bunny_rule_enabled[]"]:checked' ).map( function() { return $( this ).val(); } ).get() }
         } )
             .done( function ( res ) {
-                var results = res.results || {}, rows = '';
+                var data = res.data || res;
+                var results = data.results || {}, rows = '';
                 $.each( results, function ( k, r ) {
                     var pill = r.success ? '<span class="spc-bunny-pill is-ok">OK</span>' : '<span class="spc-bunny-pill is-err">Error</span>';
                     rows += '<tr><td>' + $( '<div>' ).text( r.label ).html() + '</td><td>' + pill + '</td><td>' + $( '<div>' ).text( r.message ).html() + '</td></tr>';
                 } );
                 if ( rows ) { $( '#js-deploy-rows' ).html( rows ); $( '#js-deploy-table' ).removeAttr( 'hidden' ); }
-                setResult( $res, res.success ? cfg.i18n.updateOk : cfg.i18n.error + ( res.message || '' ), res.success );
+                setResult( $res, res.success ? cfg.i18n.updateOk : cfg.i18n.error + ( data.message || '' ), res.success );
             } )
             .fail( function ( xhr ) {
                 setResult( $res, cfg.i18n.error + ( xhr.statusText || 'Request failed' ), false );
@@ -332,13 +377,11 @@ jQuery( function ( $ ) {
             .then( function ( res ) {
                 if ( ! res.success ) { setResult( $res, cfg.i18n.error + ( res.data && res.data.message ? res.data.message : '' ), false ); return; }
                 $res.text( '' );
-                var d = res.data; var raw = d.raw || {};
+                var d = res.data;
                 $( '#js-dns-stats-grid' ).removeAttr( 'hidden' );
                 $( '#stat-dns-queries .spc-bunny-stat-card__value' ).text( d.total_queries );
-                var cached  = raw.CachedQueriesServed || raw.TotalCachedQueriesServed || 0;
-                var latency = raw.AverageQueryTime    || raw.AverageResponseTime       || 0;
-                $( '#stat-dns-cached .spc-bunny-stat-card__value'  ).text( cached  ? Number( cached ).toLocaleString() : '\u2014' );
-                $( '#stat-dns-latency .spc-bunny-stat-card__value' ).text( latency ? latency + 'ms'                    : '\u2014' );
+                $( '#stat-dns-cached .spc-bunny-stat-card__value' ).text( d.cached ? Number( d.cached ).toLocaleString() : '\u2014' );
+                $( '#stat-dns-latency .spc-bunny-stat-card__value' ).text( d.latency ? d.latency + 'ms' : '\u2014' );
             } )
             .catch( function () { setResult( $res, cfg.i18n.error + 'Request failed.', false ); } );
     } );
