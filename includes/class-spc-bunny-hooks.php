@@ -59,7 +59,7 @@ class SPC_Bunny_Hooks {
         if ( defined( 'DOING_AUTOSAVE' ) && DOING_AUTOSAVE ) {
             return;
         }
-        if ( $post->post_status !== 'publish' ) {
+        if ( 'publish' !== $post->post_status ) {
             return;
         }
         /** @var string[] $watched */
@@ -70,21 +70,26 @@ class SPC_Bunny_Hooks {
     }
 
     public function on_rest_save( WP_Post $post ): void {
-        if ( $post->post_status !== 'publish' ) {
+        if ( 'publish' !== $post->post_status ) {
+            return;
+        }
+        /** @var string[] $watched */
+        $watched = (array) apply_filters( 'spc_bunny_watched_post_types', [ 'post', 'page' ] );
+        if ( ! in_array( $post->post_type, $watched, true ) ) {
             return;
         }
         $this->purge->purge_post( $post->ID );
     }
 
     public function on_post_status_change( string $new_status, string $old_status, WP_Post $post ): void {
-        if ( $old_status === 'publish' && $new_status !== 'publish' ) {
+        if ( 'publish' === $old_status && 'publish' !== $new_status ) {
             $this->purge->purge_post( $post->ID );
         }
     }
 
     public function on_post_delete( int $post_id ): void {
         $post = get_post( $post_id );
-        if ( $post instanceof WP_Post && $post->post_status === 'publish' ) {
+        if ( $post instanceof WP_Post && 'publish' === $post->post_status ) {
             $this->purge->purge_post( $post_id );
         }
     }
