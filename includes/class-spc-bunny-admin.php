@@ -118,7 +118,7 @@ class SPC_Bunny_Admin {
     public function ajax_test(): void {
         check_ajax_referer( 'spc_bunny_test_connection', 'nonce' );
         if ( ! current_user_can( 'manage_options' ) ) { wp_send_json_error(); return; }
-        $api   = new SPC_Bunny_API();
+        $api   = spc_bunny_api();
         $zones = $api->get_pull_zones();
         if ( is_wp_error( $zones ) ) { wp_send_json_error( [ 'message' => $zones->get_error_message() ] ); return; }
         wp_send_json_success( [ 'message' => sprintf( _n( '%d pull zone found', '%d pull zones found', count( $zones ), 'spc-bunny' ), count( $zones ) ) ] );
@@ -127,7 +127,7 @@ class SPC_Bunny_Admin {
     public function ajax_zones(): void {
         check_ajax_referer( 'spc_bunny_fetch_zones', 'nonce' );
         if ( ! current_user_can( 'manage_options' ) ) { wp_send_json_error(); return; }
-        $api   = new SPC_Bunny_API();
+        $api   = spc_bunny_api();
         $zones = $api->get_pull_zones();
         if ( is_wp_error( $zones ) ) { wp_send_json_error( [ 'message' => $zones->get_error_message() ] ); return; }
         $out = [];
@@ -234,7 +234,7 @@ class SPC_Bunny_Admin {
     public function ajax_fetch_dns_zones(): void {
         check_ajax_referer( 'spc_bunny_fetch_stats', 'nonce' );
         if ( ! current_user_can( 'manage_options' ) ) { wp_send_json_error(); return; }
-        $api    = new SPC_Bunny_API();
+        $api    = spc_bunny_api();
         $zones  = $api->get_dns_zones();
         if ( is_wp_error( $zones ) ) { wp_send_json_error( [ 'message' => $zones->get_error_message() ] ); return; }
         $out = [];
@@ -250,7 +250,7 @@ class SPC_Bunny_Admin {
         $zone_id = sanitize_text_field( wp_unslash( $_POST['zone_id'] ?? '' ) );
         $days    = absint( wp_unslash( $_POST['days'] ?? 7 ) );
         if ( ! $zone_id ) { wp_send_json_error( [ 'message' => 'No DNS zone selected.' ] ); return; }
-        $api   = new SPC_Bunny_API();
+        $api   = spc_bunny_api();
         $raw   = $api->get_dns_stats( $zone_id, $days );
         if ( is_wp_error( $raw ) ) { wp_send_json_error( [ 'message' => $raw->get_error_message() ] ); return; }
         // Sum the query chart values for totals
@@ -412,7 +412,7 @@ class SPC_Bunny_Admin {
         if ( ! current_user_can( 'manage_options' ) ) { return; }
 
         $opts        = get_option( self::OPT, [] );
-        $api         = new SPC_Bunny_API();
+        $api         = spc_bunny_api();
         $er          = new SPC_Bunny_Edge_Rules();
         $log         = get_option( 'spc_bunny_purge_log', [] );
         $deployed    = $er->get_deployed_guids();
