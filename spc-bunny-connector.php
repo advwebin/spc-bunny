@@ -3,18 +3,20 @@
  * Plugin Name: SPC Bunny Connector
  * Plugin URI:  https://nahnumedia.com
  * Description: Integrates Super Page Cache with Bunny.net CDN. Purges Bunny Pull Zone HTML cache on SPC events, deploys Edge Rules for full HTML caching, shows live CDN stats, warms cache after purges.
- * Version:     2.1.1
+ * Version:     3.0.0
  * Author:      Nahnu Media
  * Author URI:  https://nahnumedia.com
  * License:     GPL-2.0+
  * Text Domain: spc-bunny
+ * Requires PHP:  8.2
+ * Requires at least: 6.0
  */
 
 declare( strict_types=1 );
 
 defined( 'ABSPATH' ) || exit;
 
-define( 'SPC_BUNNY_VERSION', '2.1.1' );
+define( 'SPC_BUNNY_VERSION', '3.0.0' );
 define( 'SPC_BUNNY_FILE',    __FILE__ );
 define( 'SPC_BUNNY_DIR',     plugin_dir_path( __FILE__ ) );
 define( 'SPC_BUNNY_URL',     plugin_dir_url( __FILE__ ) );
@@ -28,6 +30,21 @@ require_once SPC_BUNNY_DIR . 'includes/class-spc-bunny-perma-cache.php';
 require_once SPC_BUNNY_DIR . 'includes/class-spc-bunny-hooks.php';
 require_once SPC_BUNNY_DIR . 'includes/class-spc-bunny-admin.php';
 require_once SPC_BUNNY_DIR . 'includes/class-spc-bunny-updater.php';
+
+/**
+ * Return the shared SPC_Bunny_API instance.
+ *
+ * All internal code should call this instead of `new SPC_Bunny_API()`.
+ * The constructor remains public for unit test instantiation with
+ * explicit options arrays.
+ *
+ * @since 3.0.0
+ * @return SPC_Bunny_API
+ */
+function spc_bunny_api(): SPC_Bunny_API {
+	static $instance;
+	return $instance ??= new SPC_Bunny_API();
+}
 
 SPC_Bunny_Warmer::register_hooks();
 
