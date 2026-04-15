@@ -60,8 +60,13 @@ class SPC_Bunny_API {
 	 * @return true|WP_Error
 	 */
 	public function purge_url( string $url, bool $async = true ): true|WP_Error {
+		// The /purge endpoint is global — no zone_id needed (unlike /pullzone/{id}/purgeCache).
 		if ( '' === $this->api_key ) {
 			return new WP_Error( 'no_key', __( 'No API key saved.', 'spc-bunny' ) );
+		}
+		$url = esc_url_raw( $url );
+		if ( '' === $url ) {
+			return new WP_Error( 'invalid_url', __( 'Invalid or empty URL.', 'spc-bunny' ) );
 		}
 		$endpoint = add_query_arg( [
 			'url'   => $url,
@@ -247,7 +252,7 @@ class SPC_Bunny_API {
 		$decoded = ! empty( $raw ) ? json_decode( $raw, true ) : [];
 		if ( ! empty( $raw ) && null === $decoded && JSON_ERROR_NONE !== json_last_error() ) {
 			$this->log( 'JSON decode error: ' . json_last_error_msg() );
-			return [];
+			return new WP_Error( 'json_error', __( 'Invalid JSON in API response.', 'spc-bunny' ) );
 		}
 		return $decoded ?? [];
 	}
