@@ -23,6 +23,7 @@ class SPC_Bunny_Admin {
         add_action( 'wp_ajax_spc_bunny_fetch_dns_zones',  [ $this, 'ajax_fetch_dns_zones'  ] );
         add_action( 'wp_ajax_spc_bunny_fetch_dns_stats',  [ $this, 'ajax_fetch_dns_stats'  ] );
         add_action( 'wp_ajax_spc_bunny_cleanup_perma',    [ $this, 'ajax_cleanup_perma'    ] );
+        add_action( 'wp_ajax_spc_bunny_purge_url',       [ $this, 'ajax_purge_url'       ] );
         add_filter( 'plugin_action_links_' . plugin_basename( SPC_BUNNY_FILE ), [ $this, 'action_links' ] );
     }
 
@@ -42,7 +43,9 @@ class SPC_Bunny_Admin {
     public function sanitize( mixed $raw ): array {
         $raw = is_array( $raw ) ? $raw : [];
         return [
-            'api_key'               => sanitize_text_field( $raw['api_key']       ?? '' ),
+            'api_key'               => '********' === ( $raw['api_key'] ?? '' )
+                ? ( get_option( 'spc_bunny_settings', [] )['api_key'] ?? '' )
+                : sanitize_text_field( $raw['api_key'] ?? '' ),
             'pull_zone_id'          => sanitize_text_field( $raw['pull_zone_id']  ?? '' ),
             'pull_zone_name'        => sanitize_text_field( $raw['pull_zone_name'] ?? '' ),
             'trigger_post_save'     => ! empty( $raw['trigger_post_save'] ),
@@ -59,7 +62,9 @@ class SPC_Bunny_Admin {
             'enabled_rules'         => is_array( $raw['enabled_rules'] ?? null ) ? array_map( 'sanitize_key', $raw['enabled_rules'] ) : null,
             'perma_cache_enabled'       => ! empty( $raw['perma_cache_enabled'] ),
             'perma_cache_zone_name'     => sanitize_text_field( $raw['perma_cache_zone_name']     ?? '' ),
-            'perma_cache_zone_password' => sanitize_text_field( $raw['perma_cache_zone_password'] ?? '' ),
+            'perma_cache_zone_password' => '********' === ( $raw['perma_cache_zone_password'] ?? '' )
+                ? ( get_option( 'spc_bunny_settings', [] )['perma_cache_zone_password'] ?? '' )
+                : sanitize_text_field( $raw['perma_cache_zone_password'] ?? '' ),
             'perma_cache_region'        => sanitize_key(        $raw['perma_cache_region']        ?? 'de' ),
             'perma_cache_keep'          => max( 1, min( 5, (int) ( $raw['perma_cache_keep'] ?? 1 ) ) ),
         ];
@@ -82,7 +87,11 @@ class SPC_Bunny_Admin {
             'nonceWarm'     => wp_create_nonce( 'spc_bunny_warm_now' ),
             'nonceDeploy'   => wp_create_nonce( 'spc_bunny_deploy_rules' ),
             'nonceUpdate'   => wp_create_nonce( 'spc_bunny_update_rules' ),
-            'nonceRemove'   => wp_create_nonce( 'spc_bunny_remove_rules' ),
+            'nonceRemove'       => wp_create_nonce( 'spc_bunny_remove_rules' ),
+            'nonceTestPerma'    => wp_create_nonce( 'spc_bunny_test_perma_cache' ),
+            'nonceCleanupPerma' => wp_create_nonce( 'spc_bunny_cleanup_perma' ),
+            'nonceDeployStatus' => wp_create_nonce( 'spc_bunny_deploy_status' ),
+            'noncePurgeUrl'     => wp_create_nonce( 'spc_bunny_purge_url' ),
             'i18n'          => [
                 'testing'       => __( 'Testing...', 'spc-bunny' ),
                 'testOk'        => __( 'Connected', 'spc-bunny' ),
@@ -133,7 +142,7 @@ class SPC_Bunny_Admin {
     public function ajax_stats(): void {
         check_ajax_referer( 'spc_bunny_fetch_stats', 'nonce' );
         if ( ! current_user_can( 'manage_options' ) ) { wp_send_json_error(); return; }
-        $days   = absint( $_POST['days'] ?? 7 );
+        $days   = absint( wp_unslash( $_POST['days'] ?? 7 ) );
         $stats_obj = new SPC_Bunny_Stats();
         $stats     = $stats_obj->get( $days );
         $health    = $stats_obj->get_cache_status();
@@ -164,11 +173,11 @@ class SPC_Bunny_Admin {
     }
 
     public function ajax_test_perma_cache(): void {
-        check_ajax_referer( 'spc_bunny_manual_purge', 'nonce' );
+        check_ajax_referer( 'spc_bunny_test_perma_cache', 'nonce' );
         if ( ! current_user_can( 'manage_options' ) ) { wp_send_json_error(); return; }
-        $zone_name = sanitize_text_field( $_POST['zone_name']     ?? '' );
-        $zone_pass = sanitize_text_field( $_POST['zone_password'] ?? '' );
-        $region    = sanitize_key(        $_POST['region']        ?? 'de' );
+        $zone_name = sanitize_text_field( wp_unslash( $_POST['zone_name']     ?? '' ) );
+        $zone_pass = sanitize_text_field( wp_unslash( $_POST['zone_password'] ?? '' ) );
+        $region    = sanitize_key( wp_unslash( $_POST['region']        ?? 'de' ) );
         if ( ! $zone_name || ! $zone_pass ) {
             wp_send_json_error( [ 'message' => __( 'Storage zone name and password are required.', 'spc-bunny' ) ] );
             return;
@@ -189,12 +198,12 @@ class SPC_Bunny_Admin {
     }
 
     public function ajax_cleanup_perma(): void {
-        check_ajax_referer( 'spc_bunny_manual_purge', 'nonce' );
+        check_ajax_referer( 'spc_bunny_cleanup_perma', 'nonce' );
         if ( ! current_user_can( 'manage_options' ) ) { wp_send_json_error(); return; }
-        $zone_name = sanitize_text_field( $_POST['zone_name']     ?? '' );
-        $zone_pass = sanitize_text_field( $_POST['zone_password'] ?? '' );
-        $region    = sanitize_key(        $_POST['region']        ?? 'de' );
-        $keep      = max( 1, min( 5, (int) ( $_POST['keep'] ?? 1 ) ) );
+        $zone_name = sanitize_text_field( wp_unslash( $_POST['zone_name']     ?? '' ) );
+        $zone_pass = sanitize_text_field( wp_unslash( $_POST['zone_password'] ?? '' ) );
+        $region    = sanitize_key( wp_unslash( $_POST['region']        ?? 'de' ) );
+        $keep      = max( 1, min( 5, (int) wp_unslash( $_POST['keep'] ?? 1 ) ) );
         if ( ! $zone_name || ! $zone_pass ) {
             wp_send_json_error( [ 'message' => __( 'Storage zone name and password are required.', 'spc-bunny' ) ] );
             return;
@@ -236,8 +245,8 @@ class SPC_Bunny_Admin {
     public function ajax_fetch_dns_stats(): void {
         check_ajax_referer( 'spc_bunny_fetch_stats', 'nonce' );
         if ( ! current_user_can( 'manage_options' ) ) { wp_send_json_error(); return; }
-        $zone_id = sanitize_text_field( $_POST['zone_id'] ?? '' );
-        $days    = absint( $_POST['days'] ?? 7 );
+        $zone_id = sanitize_text_field( wp_unslash( $_POST['zone_id'] ?? '' ) );
+        $days    = absint( wp_unslash( $_POST['days'] ?? 7 ) );
         if ( ! $zone_id ) { wp_send_json_error( [ 'message' => 'No DNS zone selected.' ] ); return; }
         $api   = new SPC_Bunny_API();
         $raw   = $api->get_dns_stats( $zone_id, $days );
@@ -247,7 +256,8 @@ class SPC_Bunny_Admin {
         $total_queries = is_array( $query_chart ) ? (int) array_sum( $query_chart ) : (int) ( $raw['TotalQueriesServed'] ?? 0 );
         wp_send_json_success( [
             'total_queries' => number_format( $total_queries ),
-            'raw'           => $raw,
+            'cached'        => (int) ( $raw['CachedQueriesServed'] ?? $raw['TotalCachedQueriesServed'] ?? 0 ),
+            'latency'       => (int) ( $raw['AverageQueryTime'] ?? $raw['AverageResponseTime'] ?? 0 ),
         ] );
     }
 
@@ -262,14 +272,16 @@ class SPC_Bunny_Admin {
         check_ajax_referer( 'spc_bunny_deploy_rules', 'nonce' );
         if ( ! current_user_can( 'manage_options' ) ) { wp_send_json_error(); return; }
         $ttl         = absint( wp_unslash( $_POST['ttl'] ?? 604800 ) );
-        $force_cache = ! empty( $_POST['force_cache'] );
+        $force_cache = ! empty( wp_unslash( $_POST['force_cache'] ?? '' ) );
         update_option( 'spc_bunny_edge_ttl',    $ttl,         false );
         update_option( 'spc_bunny_force_cache', $force_cache, false );
         // Save custom bypass paths into settings so deploy() can read them
         $settings = get_option( 'spc_bunny_settings', [] );
-        $settings['custom_bypass_paths'] = sanitize_textarea_field( $_POST['custom_bypass_paths'] ?? '' );
-        $raw_enabled = $_POST['enabled_rules'] ?? null;
-        $settings['enabled_rules'] = is_array( $raw_enabled ) ? array_map( 'sanitize_key', $raw_enabled ) : null;
+        $settings['custom_bypass_paths'] = sanitize_textarea_field( wp_unslash( $_POST['custom_bypass_paths'] ?? '' ) );
+        $raw_enabled = isset( $_POST['enabled_rules'] ) && is_array( $_POST['enabled_rules'] )
+            ? array_map( 'sanitize_key', wp_unslash( $_POST['enabled_rules'] ) )
+            : null;
+        $settings['enabled_rules'] = $raw_enabled;
         update_option( 'spc_bunny_settings', $settings, false );
         $result = ( new SPC_Bunny_Edge_Rules() )->deploy( $ttl, $force_cache );
         $result['success'] ? wp_send_json_success( $result ) : wp_send_json_error( $result );
@@ -280,14 +292,16 @@ class SPC_Bunny_Admin {
         if ( ! current_user_can( 'manage_options' ) ) { wp_send_json_error( [ 'message' => __( 'Permission denied.', 'spc-bunny' ) ] ); return; }
         // deploy() wipes all rules before recreating — no separate remove_all() needed.
         $ttl         = absint( wp_unslash( $_POST['ttl'] ?? 604800 ) );
-        $force_cache = ! empty( $_POST['force_cache'] );
+        $force_cache = ! empty( wp_unslash( $_POST['force_cache'] ?? '' ) );
         $settings    = get_option( 'spc_bunny_settings', [] );
         $settings['custom_bypass_paths'] = sanitize_textarea_field( wp_unslash( $_POST['custom_bypass_paths'] ?? '' ) );
-        $raw_enabled = $_POST['enabled_rules'] ?? null;
-        $settings['enabled_rules'] = is_array( $raw_enabled ) ? array_map( 'sanitize_key', $raw_enabled ) : null;
-        update_option( 'spc_bunny_settings', $settings );
+        $raw_enabled = isset( $_POST['enabled_rules'] ) && is_array( $_POST['enabled_rules'] )
+            ? array_map( 'sanitize_key', wp_unslash( $_POST['enabled_rules'] ) )
+            : null;
+        $settings['enabled_rules'] = $raw_enabled;
+        update_option( 'spc_bunny_settings', $settings, false );
         $result = ( new SPC_Bunny_Edge_Rules() )->deploy( $ttl, $force_cache );
-        wp_send_json( $result );
+        $result['success'] ? wp_send_json_success( $result ) : wp_send_json_error( $result );
     }
 
     public function ajax_remove(): void {
@@ -295,6 +309,30 @@ class SPC_Bunny_Admin {
         if ( ! current_user_can( 'manage_options' ) ) { wp_send_json_error(); return; }
         $result = ( new SPC_Bunny_Edge_Rules() )->remove_all();
         $result['success'] ? wp_send_json_success( $result ) : wp_send_json_error( $result );
+    }
+
+    /**
+     * AJAX: Purge a single URL from Bunny CDN.
+     *
+     * @since 3.0.0
+     */
+    public function ajax_purge_url(): void {
+        check_ajax_referer( 'spc_bunny_purge_url', 'nonce' );
+        if ( ! current_user_can( 'manage_options' ) ) {
+            wp_send_json_error();
+            return;
+        }
+        $url = esc_url_raw( wp_unslash( $_POST['url'] ?? '' ) );
+        if ( '' === $url ) {
+            wp_send_json_error( [ 'message' => __( 'Enter a URL to purge.', 'spc-bunny' ) ] );
+            return;
+        }
+        $result = spc_bunny_api()->purge_url( $url );
+        if ( is_wp_error( $result ) ) {
+            wp_send_json_error( [ 'message' => $result->get_error_message() ] );
+            return;
+        }
+        wp_send_json_success( [ 'message' => sprintf( __( 'Purged: %s', 'spc-bunny' ), $url ) ] );
     }
 
     // ── Page ─────────────────────────────────────────────────────────────────
@@ -454,7 +492,7 @@ class SPC_Bunny_Admin {
                         <div class="spc-bunny-field">
                             <label for="spc_api_key"><?php esc_html_e( 'Account API Key', 'spc-bunny' ); ?></label>
                             <div class="spc-bunny-row">
-                                <input type="password" id="spc_api_key" name="<?php echo esc_attr( self::OPT ); ?>[api_key]" value="<?php echo esc_attr( $opts['api_key'] ?? '' ); ?>" class="regular-text" autocomplete="off" />
+                                <input type="password" id="spc_api_key" name="<?php echo esc_attr( self::OPT ); ?>[api_key]" value="<?php echo ! empty( $opts['api_key'] ) ? '********' : ''; ?>" class="regular-text" autocomplete="off" />
                                 <button type="button" id="js-test" class="button"><?php esc_html_e( 'Test Connection', 'spc-bunny' ); ?></button>
                                 <span id="js-test-result" class="spc-bunny-inline" aria-live="polite"></span>
                             </div>
@@ -539,7 +577,7 @@ class SPC_Bunny_Admin {
                                 <label for="spc_perma_zone_password"><?php esc_html_e( 'Storage Zone Password', 'spc-bunny' ); ?></label>
                                 <input type="password" id="spc_perma_zone_password"
                                     name="<?php echo esc_attr( self::OPT ); ?>[perma_cache_zone_password]"
-                                    value="<?php echo esc_attr( $opts['perma_cache_zone_password'] ?? '' ); ?>"
+                                    value="<?php echo ! empty( $opts['perma_cache_zone_password'] ) ? '********' : ''; ?>"
                                     class="regular-text" autocomplete="off" />
                                 <p class="description"><?php esc_html_e( 'Found in the storage zone under FTP & API Access. This is the zone password, NOT your account API key.', 'spc-bunny' ); ?></p>
                             </div>
@@ -642,7 +680,7 @@ class SPC_Bunny_Admin {
                             $rule_enabled = $enabled_rules_setting === null || in_array( $key, $enabled_rules_setting, true );
                         ?>
                             <div class="spc-bunny-rule <?php echo $active ? 'is-active' : ''; ?> <?php echo $rule_enabled ? '' : 'is-disabled-rule'; ?>">
-                                <span class="spc-bunny-rule__icon"><?php echo $icon; ?></span>
+                                <span class="spc-bunny-rule__icon"><?php echo wp_kses_post( $icon ); ?></span>
                                 <div class="spc-bunny-rule__body">
                                     <strong><?php echo esc_html( $title ); ?></strong>
                                     <p><?php echo esc_html( $desc ); ?></p>
@@ -750,6 +788,16 @@ class SPC_Bunny_Admin {
                     <?php if ( ! empty( $log[0] ) ) : $last = $log[0]; ?>
                         <p class="spc-bunny-last-purge"><?php esc_html_e( 'Last purge:', 'spc-bunny' ); ?> <strong><?php echo esc_html( $last['time'] ); ?></strong> &mdash; <span class="<?php echo $last['success'] ? 'spc-ok' : 'spc-err'; ?>"><?php echo esc_html( $last['message'] ); ?></span> (<?php echo esc_html( $last['context'] ); ?>)</p>
                     <?php endif; ?>
+
+                    <div class="spc-bunny-field" style="margin-top:14px;padding-top:14px;border-top:1px solid #f0f0f1">
+                        <label for="spc_purge_url"><?php esc_html_e( 'Purge Single URL', 'spc-bunny' ); ?></label>
+                        <div class="spc-bunny-row">
+                            <input type="url" id="spc_purge_url" class="regular-text" placeholder="https://example.com/my-page/" <?php disabled( ! $api->is_configured() ); ?> />
+                            <button type="button" id="js-purge-url" class="button" <?php disabled( ! $api->is_configured() ); ?>><?php esc_html_e( 'Purge URL', 'spc-bunny' ); ?></button>
+                            <span id="js-purge-url-result" class="spc-bunny-inline" aria-live="polite"></span>
+                        </div>
+                        <p class="description"><?php esc_html_e( 'Purge a single page from CDN cache without clearing the entire cache.', 'spc-bunny' ); ?></p>
+                    </div>
                 </div>
             </div>
 
