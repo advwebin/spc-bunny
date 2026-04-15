@@ -52,8 +52,9 @@ SPC_Bunny_Warmer::register_hooks();
 add_action( 'swcfpc_purge_all', static function (): void {
 	static $purge = null;
 	$purge ??= new SPC_Bunny_Purge();
-	$purge->purge_all();
-	update_option( 'spc_bunny_spc_last_purge', wp_date( 'Y-m-d H:i:s' ), false );
+	if ( $purge->purge_all() ) {
+		update_option( 'spc_bunny_spc_last_purge', wp_date( 'Y-m-d H:i:s' ), false );
+	}
 }, 20 );
 
 // Per-URL purge — fires after SPC clears specific URLs.

@@ -13,23 +13,29 @@ class SPC_Bunny_Purge {
 	 *
 	 * @since 3.0.0
 	 */
-	public function purge_all(): void {
+	public function purge_all(): bool {
 		$locked = wp_cache_add( 'spc_bunny_purge_lock', 1, 'spc-bunny', 15 );
 		if ( ! $locked ) {
-			return;
+			$this->log_result(
+				new WP_Error( 'throttled', __( 'Purge deduplicated (another purge in progress).', 'spc-bunny' ) ),
+				'full (deduplicated)'
+			);
+			return false;
 		}
 
 		$result = spc_bunny_api()->purge_all();
 		$this->log_result( $result, 'full' );
 
 		if ( is_wp_error( $result ) ) {
-			return;
+			return false;
 		}
 
 		update_option( 'spc_bunny_last_purge', wp_date( 'Y-m-d H:i:s' ), false );
 		( new SPC_Bunny_Stats() )->flush();
 		SPC_Bunny_Warmer::schedule();
 		SPC_Bunny_Perma_Cache::maybe_cleanup();
+
+		return true;
 	}
 
 	/**

@@ -1,4 +1,4 @@
-/* SPC Bunny Connector — Admin JS v1.5.9 */
+/* SPC Bunny Connector — Admin JS v3.0.0 */
 jQuery( function ( $ ) {
     var cfg = window.spcBunny || {};
 
