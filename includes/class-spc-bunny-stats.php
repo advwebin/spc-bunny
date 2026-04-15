@@ -14,7 +14,7 @@ class SPC_Bunny_Stats {
             return $cached;
         }
 
-        $api = new SPC_Bunny_API();
+        $api = spc_bunny_api();
         $raw = $api->get_stats( $days );
 
         if ( is_wp_error( $raw ) ) {

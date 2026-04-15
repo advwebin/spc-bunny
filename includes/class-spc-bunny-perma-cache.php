@@ -67,7 +67,7 @@ class SPC_Bunny_Perma_Cache {
         $code = wp_remote_retrieve_response_code( $response );
         $body = wp_remote_retrieve_body( $response );
         if ( $code < 200 || $code >= 300 ) {
-            return new WP_Error( 'storage_error', "Storage API HTTP {$code}: {$body}" );
+            return new WP_Error( 'storage_error', sprintf( 'Storage API error (HTTP %d)', $code ) );
         }
         return json_decode( $body, true ) ?? [];
     }
@@ -207,7 +207,7 @@ class SPC_Bunny_Perma_Cache {
             empty( $results['errors'] ) ? '' : 'Errors: ' . implode( '; ', $results['errors'] )
         );
         array_unshift( $log, [
-            'time'    => current_time( 'mysql' ),
+            'time'    => wp_date( 'Y-m-d H:i:s' ),
             'context' => 'perma-cache-cleanup',
             'success' => empty( $results['errors'] ),
             'message' => trim( $msg ),
