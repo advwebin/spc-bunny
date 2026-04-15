@@ -23,6 +23,21 @@ class SPC_Bunny_API {
         return $this->api_key !== '' && $this->zone_id !== '';
     }
 
+    /**
+     * Build the User-Agent string for API requests.
+     *
+     * @since 3.0.0
+     * @return string
+     */
+    private function user_agent(): string {
+        return sprintf(
+            'SPC-Bunny-Connector/%s (WordPress/%s; PHP/%s)',
+            SPC_BUNNY_VERSION,
+            get_bloginfo( 'version' ),
+            PHP_MAJOR_VERSION . '.' . PHP_MINOR_VERSION
+        );
+    }
+
     public function purge_all(): true|WP_Error {
         if ( ! $this->is_configured() ) {
             return new WP_Error( 'not_configured', __( 'API key or Pull Zone ID not set.', 'spc-bunny' ) );
@@ -34,6 +49,70 @@ class SPC_Bunny_API {
         }
         $this->log( 'Full purge OK.' );
         return true;
+    }
+
+    /**
+     * Purge a single URL from Bunny CDN edge cache.
+     *
+     * @since 3.0.0
+     * @param string $url   The URL to purge.
+     * @param bool   $async Whether Bunny should process asynchronously.
+     * @return true|WP_Error
+     */
+    public function purge_url( string $url, bool $async = true ): true|WP_Error {
+        if ( '' === $this->api_key ) {
+            return new WP_Error( 'no_key', __( 'No API key saved.', 'spc-bunny' ) );
+        }
+        $endpoint = add_query_arg( [
+            'url'   => $url,
+            'async' => $async ? 'true' : 'false',
+        ], self::API_BASE . '/purge' );
+        $result = $this->request( 'POST', $endpoint );
+        if ( is_wp_error( $result ) ) {
+            $this->log( 'purge_url failed for ' . $url . ': ' . $result->get_error_message() );
+            return $result;
+        }
+        $this->log( 'Purged URL: ' . $url );
+        return true;
+    }
+
+    /**
+     * Purge multiple URLs. Falls back to full zone purge above 50 URLs.
+     *
+     * @since 3.0.0
+     * @param string[] $urls URLs to purge.
+     * @return array<string, true|WP_Error>
+     */
+    public function purge_urls( array $urls ): array {
+        if ( count( $urls ) > 50 ) {
+            $result = $this->purge_all();
+            return [ '*' => $result ];
+        }
+
+        $results = [];
+        foreach ( $urls as $url ) {
+            $result = $this->purge_url( $url );
+            $results[ $url ] = $result;
+
+            if ( is_wp_error( $result ) && 'rate_limited' === $result->get_error_code() ) {
+                break;
+            }
+        }
+        return $results;
+    }
+
+    /**
+     * Purge URLs matching a wildcard pattern.
+     *
+     * @since 3.0.0
+     * @param string $pattern URL pattern ending with *.
+     * @return true|WP_Error
+     */
+    public function purge_wildcard( string $pattern ): true|WP_Error {
+        if ( ! str_ends_with( $pattern, '*' ) ) {
+            return new WP_Error( 'invalid_pattern', __( 'Wildcard pattern must end with *', 'spc-bunny' ) );
+        }
+        return $this->purge_url( $pattern );
     }
 
     public function get_pull_zones(): array|WP_Error {
@@ -128,28 +207,49 @@ class SPC_Bunny_API {
     }
 
     private function request( string $method, string $url, array $body = [] ): array|WP_Error {
-        $args = [
-            'method'  => $method,
-            'timeout' => 15,
-            'headers' => [
-                'AccessKey'    => $this->api_key,
-                'Content-Type' => 'application/json',
-                'Accept'       => 'application/json',
-            ],
+        $headers = [
+            'AccessKey'  => $this->api_key,
+            'Accept'     => 'application/json',
+            'User-Agent' => $this->user_agent(),
         ];
         if ( in_array( $method, [ 'POST', 'PUT' ], true ) && ! empty( $body ) ) {
+            $headers['Content-Type'] = 'application/json';
+        }
+
+        $args = [
+            'method'  => $method,
+            'timeout' => 10,
+            'headers' => $headers,
+        ];
+        if ( ! empty( $body ) ) {
             $args['body'] = wp_json_encode( $body );
         }
+
         $response = wp_remote_request( $url, $args );
         if ( is_wp_error( $response ) ) {
             return $response;
         }
+
         $code = wp_remote_retrieve_response_code( $response );
         $raw  = wp_remote_retrieve_body( $response );
-        if ( $code < 200 || $code >= 300 ) {
-            return new WP_Error( 'api_error', "Bunny API HTTP {$code}: {$raw}" );
+
+        if ( 429 === $code ) {
+            $retry_after = (int) wp_remote_retrieve_header( $response, 'retry-after' ) ?: 5;
+            return new WP_Error( 'rate_limited', __( 'Bunny API rate limit hit.', 'spc-bunny' ), [
+                'retry_after' => $retry_after,
+            ] );
         }
-        return ! empty( $raw ) ? ( json_decode( $raw, true ) ?? [] ) : [];
+
+        if ( $code < 200 || $code >= 300 ) {
+            return new WP_Error( 'api_error', sprintf( 'Bunny API HTTP %d', $code ) );
+        }
+
+        $decoded = ! empty( $raw ) ? json_decode( $raw, true ) : [];
+        if ( ! empty( $raw ) && null === $decoded && JSON_ERROR_NONE !== json_last_error() ) {
+            $this->log( 'JSON decode error: ' . json_last_error_msg() );
+            return [];
+        }
+        return $decoded ?? [];
     }
 
     private function log( string $msg ): void {
