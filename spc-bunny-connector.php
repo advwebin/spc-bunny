@@ -48,36 +48,48 @@ function spc_bunny_api(): SPC_Bunny_API {
 
 SPC_Bunny_Warmer::register_hooks();
 
-/**
- * SPC purge hooks — registered at file scope to guarantee they are in place
- * regardless of plugin load order.
- *
- * The correct hooks from cache_controller.class.php:
- *   swcfpc_purge_all  — fires after every full cache purge
- *   swcfpc_purge_urls — fires after per-URL purge, passes $urls array
- *
- * These fire unconditionally regardless of CDN provider (unlike the
- * Cloudflare-specific swcfpc_cf_purge_* hooks which never fire on Bunny-only sites).
- *
- * A single SPC_Bunny_Purge instance is shared between both callbacks to avoid
- * double-instantiation (each new SPC_Bunny_Purge calls new SPC_Bunny_API which
- * calls get_option).
- */
-function spc_bunny_spc_purge_callback(): void {
-    static $purge = null;
-    if ( $purge === null ) {
-        $purge = new SPC_Bunny_Purge();
-    }
-    $purge->purge_all();
-    update_option( 'spc_bunny_spc_last_purge', current_time( 'mysql' ), false );
-}
+// Full purge — fires after SPC clears all cache.
+add_action( 'swcfpc_purge_all', static function (): void {
+	static $purge = null;
+	$purge ??= new SPC_Bunny_Purge();
+	$purge->purge_all();
+	update_option( 'spc_bunny_spc_last_purge', wp_date( 'Y-m-d H:i:s' ), false );
+}, 20 );
 
-add_action( 'swcfpc_purge_all',  'spc_bunny_spc_purge_callback', 20, 0 );
-add_action( 'swcfpc_purge_urls', 'spc_bunny_spc_purge_callback', 20, 0 );
+// Per-URL purge — fires after SPC clears specific URLs.
+add_action( 'swcfpc_purge_urls', static function ( array $urls ): void {
+	spc_bunny_api()->purge_urls( $urls );
+	update_option( 'spc_bunny_spc_last_purge', wp_date( 'Y-m-d H:i:s' ), false );
+}, 20 );
+
+// Retry hook for rate-limited per-URL purges.
+add_action( 'spc_bunny_retry_purge_url', static function ( string $url ): void {
+	spc_bunny_api()->purge_url( $url );
+}, 10, 1 );
+
+// Custom cron interval for cache warmer (fixed 30s, not dynamic).
+add_filter( 'cron_schedules', static function ( array $schedules ): array {
+	$schedules['spc_bunny_warm_interval'] = [
+		'interval' => 30,
+		'display'  => 'SPC Bunny Warmer Interval',
+	];
+	return $schedules;
+} );
 
 add_action( 'plugins_loaded', static function (): void {
-    new SPC_Bunny_Hooks();
-    if ( is_admin() ) {
-        new SPC_Bunny_Admin();
-    }
+	load_plugin_textdomain( 'spc-bunny', false, dirname( plugin_basename( SPC_BUNNY_FILE ) ) . '/languages' );
+	new SPC_Bunny_Hooks();
+	if ( is_admin() ) {
+		new SPC_Bunny_Admin();
+	}
+} );
+
+register_deactivation_hook( SPC_BUNNY_FILE, static function (): void {
+	SPC_Bunny_Warmer::cancel();
+	wp_clear_scheduled_hook( 'spc_bunny_cron_deploy' );
+	wp_clear_scheduled_hook( 'spc_bunny_retry_purge_url' );
+	delete_option( 'spc_bunny_warm_queue' );
+	delete_option( 'spc_bunny_warm_pending' );
+	delete_option( 'spc_bunny_deploy_params' );
+	delete_option( 'spc_bunny_deploy_status' );
 } );
