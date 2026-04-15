@@ -3,6 +3,14 @@ declare( strict_types=1 );
 
 defined( 'ABSPATH' ) || exit;
 
+/**
+ * Bunny.net REST API wrapper.
+ *
+ * Handles all HTTP communication with the Bunny CDN API and Storage API.
+ * Use spc_bunny_api() to get the shared instance.
+ *
+ * @since 2.0.0
+ */
 class SPC_Bunny_API {
 
 	private const API_BASE  = 'https://api.bunny.net';
@@ -12,6 +20,11 @@ class SPC_Bunny_API {
 	private string $zone_id;
 	private bool   $logging;
 
+	/**
+	 * Initialize API client from saved plugin settings.
+	 *
+	 * @since 2.0.0
+	 */
 	public function __construct() {
 		$opts          = get_option( 'spc_bunny_settings', [] );
 		$this->api_key = (string) ( $opts['api_key']       ?? '' );
@@ -19,6 +32,12 @@ class SPC_Bunny_API {
 		$this->logging = ! empty( $opts['enable_logging'] );
 	}
 
+	/**
+	 * Check whether the API key and pull zone ID are set.
+	 *
+	 * @since 2.0.0
+	 * @return bool
+	 */
 	public function is_configured(): bool {
 		return '' !== $this->api_key && '' !== $this->zone_id;
 	}
@@ -38,6 +57,12 @@ class SPC_Bunny_API {
 		);
 	}
 
+	/**
+	 * Purge the entire pull zone cache.
+	 *
+	 * @since 2.0.0
+	 * @return true|WP_Error
+	 */
 	public function purge_all(): true|WP_Error {
 		if ( ! $this->is_configured() ) {
 			return new WP_Error( 'not_configured', __( 'API key or Pull Zone ID not set.', 'spc-bunny' ) );
@@ -120,6 +145,12 @@ class SPC_Bunny_API {
 		return $this->purge_url( $pattern );
 	}
 
+	/**
+	 * Retrieve all pull zones from the account.
+	 *
+	 * @since 3.0.0
+	 * @return array|WP_Error
+	 */
 	public function get_pull_zones(): array|WP_Error {
 		if ( '' === $this->api_key ) {
 			return new WP_Error( 'no_key', __( 'No API key saved.', 'spc-bunny' ) );
@@ -131,6 +162,13 @@ class SPC_Bunny_API {
 		return $result['Items'] ?? [];
 	}
 
+	/**
+	 * Update settings on the configured pull zone.
+	 *
+	 * @since 3.0.0
+	 * @param array $settings Key-value pairs of pull zone settings to update.
+	 * @return true|WP_Error
+	 */
 	public function update_pull_zone( array $settings ): true|WP_Error {
 		if ( ! $this->is_configured() ) {
 			return new WP_Error( 'not_configured', __( 'API key or Pull Zone ID not set.', 'spc-bunny' ) );
@@ -142,6 +180,13 @@ class SPC_Bunny_API {
 		return true;
 	}
 
+	/**
+	 * Add or update an edge rule on the configured pull zone.
+	 *
+	 * @since 3.0.0
+	 * @param array $rule Edge rule definition to create or update.
+	 * @return array|WP_Error
+	 */
 	public function upsert_edge_rule( array $rule ): array|WP_Error {
 		if ( ! $this->is_configured() ) {
 			return new WP_Error( 'not_configured', __( 'API key or Pull Zone ID not set.', 'spc-bunny' ) );
@@ -149,6 +194,12 @@ class SPC_Bunny_API {
 		return $this->request( 'POST', self::ZONE_BASE . '/' . $this->zone_id . '/edgerules/addOrUpdate', $rule );
 	}
 
+	/**
+	 * Retrieve all edge rules for the configured pull zone.
+	 *
+	 * @since 3.0.0
+	 * @return array|WP_Error
+	 */
 	public function get_edge_rules(): array|WP_Error {
 		if ( ! $this->is_configured() ) {
 			return new WP_Error( 'not_configured', __( 'API key or Pull Zone ID not set.', 'spc-bunny' ) );
@@ -164,6 +215,13 @@ class SPC_Bunny_API {
 		return is_array( $rules ) ? $rules : [];
 	}
 
+	/**
+	 * Delete an edge rule by its GUID.
+	 *
+	 * @since 3.0.0
+	 * @param string $guid The unique identifier of the edge rule to delete.
+	 * @return true|WP_Error
+	 */
 	public function delete_edge_rule( string $guid ): true|WP_Error {
 		if ( ! $this->is_configured() ) {
 			return new WP_Error( 'not_configured', __( 'API key or Pull Zone ID not set.', 'spc-bunny' ) );
@@ -175,6 +233,13 @@ class SPC_Bunny_API {
 		return true;
 	}
 
+	/**
+	 * Retrieve CDN statistics for the configured pull zone.
+	 *
+	 * @since 3.0.0
+	 * @param int $days Number of days of statistics to retrieve.
+	 * @return array|WP_Error
+	 */
 	public function get_stats( int $days = 7 ): array|WP_Error {
 		if ( ! $this->is_configured() ) {
 			return new WP_Error( 'not_configured', __( 'API key or Pull Zone ID not set.', 'spc-bunny' ) );
@@ -188,6 +253,12 @@ class SPC_Bunny_API {
 		return $this->request( 'GET', $url );
 	}
 
+	/**
+	 * Retrieve all DNS zones from the account.
+	 *
+	 * @since 3.0.0
+	 * @return array|WP_Error
+	 */
 	public function get_dns_zones(): array|WP_Error {
 		if ( '' === $this->api_key ) {
 			return new WP_Error( 'no_key', __( 'No API key set.', 'spc-bunny' ) );
@@ -199,6 +270,14 @@ class SPC_Bunny_API {
 		return $result['Items'] ?? [];
 	}
 
+	/**
+	 * Retrieve DNS statistics for a specific zone.
+	 *
+	 * @since 3.0.0
+	 * @param string $zone_id The DNS zone ID to query.
+	 * @param int    $days    Number of days of statistics to retrieve.
+	 * @return array|WP_Error
+	 */
 	public function get_dns_stats( string $zone_id, int $days = 7 ): array|WP_Error {
 		if ( '' === $this->api_key ) {
 			return new WP_Error( 'no_key', __( 'No API key set.', 'spc-bunny' ) );
@@ -246,7 +325,7 @@ class SPC_Bunny_API {
 		}
 
 		if ( $code < 200 || $code >= 300 ) {
-			return new WP_Error( 'api_error', sprintf( 'Bunny API HTTP %d', $code ) );
+			return new WP_Error( 'api_error', sprintf( __( 'Bunny API HTTP %d', 'spc-bunny' ), $code ) );
 		}
 
 		$decoded = ! empty( $raw ) ? json_decode( $raw, true ) : [];

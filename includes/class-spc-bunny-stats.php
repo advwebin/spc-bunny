@@ -3,10 +3,23 @@ declare( strict_types=1 );
 
 defined( 'ABSPATH' ) || exit;
 
+/**
+ * CDN statistics fetcher with transient caching.
+ *
+ * @since 2.0.0
+ */
 class SPC_Bunny_Stats {
 
 	private const CACHE_TTL = 300;
 
+	/**
+	 * Fetch CDN statistics for the given number of days, with transient caching.
+	 *
+	 * @since 2.0.0
+	 *
+	 * @param int $days Number of days to retrieve statistics for.
+	 * @return array|WP_Error Formatted statistics array or WP_Error on failure.
+	 */
 	public function get( int $days = 7 ): array|WP_Error {
 		$key    = 'spc_bunny_stats_' . $days;
 		$cached = get_transient( $key );
@@ -47,6 +60,13 @@ class SPC_Bunny_Stats {
 		return $stats;
 	}
 
+	/**
+	 * Check the CDN cache status of the site homepage via HTTP HEAD request.
+	 *
+	 * @since 2.0.0
+	 *
+	 * @return array Associative array with 'status', 'label', and 'server' keys.
+	 */
 	public function get_cache_status(): array {
 		$key    = 'spc_bunny_health';
 		$cached = get_transient( $key );
@@ -84,6 +104,13 @@ class SPC_Bunny_Stats {
 		return $result;
 	}
 
+	/**
+	 * Delete all cached statistics and health transients.
+	 *
+	 * @since 2.0.0
+	 *
+	 * @return void
+	 */
 	public function flush(): void {
 		foreach ( [ 1, 7, 30 ] as $d ) {
 			delete_transient( 'spc_bunny_stats_' . $d );
@@ -91,6 +118,14 @@ class SPC_Bunny_Stats {
 		delete_transient( 'spc_bunny_health' );
 	}
 
+	/**
+	 * Format a byte count into a human-readable string.
+	 *
+	 * @since 2.0.0
+	 *
+	 * @param int $bytes Byte count to format.
+	 * @return string Formatted string (e.g. "1.5 GB", "320 KB").
+	 */
 	private function fmt( int $bytes ): string {
 		if ( $bytes >= 1_073_741_824 ) {
 			return round( $bytes / 1_073_741_824, 2 ) . ' GB';

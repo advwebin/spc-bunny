@@ -2,11 +2,24 @@
 declare( strict_types=1 );
 defined( 'ABSPATH' ) || exit;
 
+/**
+ * Plugin settings page, AJAX handlers, and admin UI.
+ *
+ * Registers the options page under Settings, enqueues admin assets,
+ * and exposes every AJAX endpoint consumed by the admin JS.
+ *
+ * @since 2.0.0
+ */
 class SPC_Bunny_Admin {
 
 	private const MENU = 'spc-bunny-settings';
 	private const OPT  = 'spc_bunny_settings';
 
+	/**
+	 * Wire up admin hooks, AJAX actions, and plugin action links.
+	 *
+	 * @since 2.0.0
+	 */
 	public function __construct() {
 		add_action( 'admin_menu',            [ $this, 'add_menu'          ]        );
 		add_action( 'admin_init',            [ $this, 'register_settings' ]        );
@@ -29,19 +42,45 @@ class SPC_Bunny_Admin {
 		add_filter( 'plugin_action_links_' . plugin_basename( SPC_BUNNY_FILE ), [ $this, 'action_links' ] );
 	}
 
+	/**
+	 * Register the plugin settings page under Settings.
+	 *
+	 * @since 2.0.0
+	 * @return void
+	 */
 	public function add_menu(): void {
 		add_options_page( 'SPC Bunny Connector', 'SPC Bunny', 'manage_options', self::MENU, [ $this, 'render_page' ] );
 	}
 
+	/**
+	 * Add a Settings shortcut to the plugin row on the Plugins page.
+	 *
+	 * @since 2.0.0
+	 * @param array $links Existing action links.
+	 * @return array Modified action links.
+	 */
 	public function action_links( array $links ): array {
 		array_unshift( $links, '<a href="' . esc_url( admin_url( 'options-general.php?page=' . self::MENU ) ) . '">' . __( 'Settings', 'spc-bunny' ) . '</a>' );
 		return $links;
 	}
 
+	/**
+	 * Register the plugin option group with WordPress Settings API.
+	 *
+	 * @since 2.0.0
+	 * @return void
+	 */
 	public function register_settings(): void {
 		register_setting( 'spc_bunny_group', self::OPT, [ 'sanitize_callback' => [ $this, 'sanitize' ] ] );
 	}
 
+	/**
+	 * Sanitize and normalize all plugin settings before saving.
+	 *
+	 * @since 2.0.0
+	 * @param mixed $raw Raw form input.
+	 * @return array Sanitized settings array.
+	 */
 	public function sanitize( mixed $raw ): array {
 		$raw = is_array( $raw ) ? $raw : [];
 		return [
@@ -72,6 +111,13 @@ class SPC_Bunny_Admin {
 		];
 	}
 
+	/**
+	 * Enqueue admin CSS, JS, and localized script data on the settings page.
+	 *
+	 * @since 2.0.0
+	 * @param string $hook Current admin page hook suffix.
+	 * @return void
+	 */
 	public function enqueue_assets( string $hook ): void {
 		if ( $hook !== 'settings_page_' . self::MENU ) {
 			return;
@@ -115,6 +161,12 @@ class SPC_Bunny_Admin {
 
 	// ── AJAX ─────────────────────────────────────────────────────────────────
 
+	/**
+	 * AJAX: Test the Bunny API connection by fetching pull zones.
+	 *
+	 * @since 2.0.0
+	 * @return void
+	 */
 	public function ajax_test(): void {
 		check_ajax_referer( 'spc_bunny_test_connection', 'nonce' );
 		if ( ! current_user_can( 'manage_options' ) ) { wp_send_json_error(); return; }
@@ -124,6 +176,12 @@ class SPC_Bunny_Admin {
 		wp_send_json_success( [ 'message' => sprintf( _n( '%d pull zone found', '%d pull zones found', count( $zones ), 'spc-bunny' ), count( $zones ) ) ] );
 	}
 
+	/**
+	 * AJAX: Fetch available pull zones for the zone picker dropdown.
+	 *
+	 * @since 2.0.0
+	 * @return void
+	 */
 	public function ajax_zones(): void {
 		check_ajax_referer( 'spc_bunny_fetch_zones', 'nonce' );
 		if ( ! current_user_can( 'manage_options' ) ) { wp_send_json_error(); return; }
@@ -141,6 +199,12 @@ class SPC_Bunny_Admin {
 		wp_send_json_success( $out );
 	}
 
+	/**
+	 * AJAX: Return CDN statistics and cache sync status.
+	 *
+	 * @since 2.0.0
+	 * @return void
+	 */
 	public function ajax_stats(): void {
 		check_ajax_referer( 'spc_bunny_fetch_stats', 'nonce' );
 		if ( ! current_user_can( 'manage_options' ) ) { wp_send_json_error(); return; }
@@ -161,6 +225,12 @@ class SPC_Bunny_Admin {
 		] );
 	}
 
+	/**
+	 * AJAX: Return the Bunny/SPC cache sync timestamps.
+	 *
+	 * @since 2.0.0
+	 * @return void
+	 */
 	public function ajax_sync_status(): void {
 		check_ajax_referer( 'spc_bunny_fetch_stats', 'nonce' );
 		if ( ! current_user_can( 'manage_options' ) ) { wp_send_json_error(); return; }
@@ -174,6 +244,12 @@ class SPC_Bunny_Admin {
 		] );
 	}
 
+	/**
+	 * AJAX: Test the Perma-Cache storage zone connection.
+	 *
+	 * @since 2.0.0
+	 * @return void
+	 */
 	public function ajax_test_perma_cache(): void {
 		check_ajax_referer( 'spc_bunny_test_perma_cache', 'nonce' );
 		if ( ! current_user_can( 'manage_options' ) ) { wp_send_json_error(); return; }
@@ -199,6 +275,12 @@ class SPC_Bunny_Admin {
 		] );
 	}
 
+	/**
+	 * AJAX: Delete old Perma-Cache directories from storage.
+	 *
+	 * @since 2.0.0
+	 * @return void
+	 */
 	public function ajax_cleanup_perma(): void {
 		check_ajax_referer( 'spc_bunny_cleanup_perma', 'nonce' );
 		if ( ! current_user_can( 'manage_options' ) ) { wp_send_json_error(); return; }
@@ -231,6 +313,12 @@ class SPC_Bunny_Admin {
 		] );
 	}
 
+	/**
+	 * AJAX: Fetch available Bunny DNS zones for the zone picker.
+	 *
+	 * @since 2.0.0
+	 * @return void
+	 */
 	public function ajax_fetch_dns_zones(): void {
 		check_ajax_referer( 'spc_bunny_fetch_stats', 'nonce' );
 		if ( ! current_user_can( 'manage_options' ) ) { wp_send_json_error(); return; }
@@ -244,12 +332,18 @@ class SPC_Bunny_Admin {
 		wp_send_json_success( $out );
 	}
 
+	/**
+	 * AJAX: Fetch DNS query statistics for a selected zone.
+	 *
+	 * @since 2.0.0
+	 * @return void
+	 */
 	public function ajax_fetch_dns_stats(): void {
 		check_ajax_referer( 'spc_bunny_fetch_stats', 'nonce' );
 		if ( ! current_user_can( 'manage_options' ) ) { wp_send_json_error(); return; }
 		$zone_id = sanitize_text_field( wp_unslash( $_POST['zone_id'] ?? '' ) );
 		$days    = absint( wp_unslash( $_POST['days'] ?? 7 ) );
-		if ( ! $zone_id ) { wp_send_json_error( [ 'message' => 'No DNS zone selected.' ] ); return; }
+		if ( ! $zone_id ) { wp_send_json_error( [ 'message' => __( 'No DNS zone selected.', 'spc-bunny' ) ] ); return; }
 		$api   = spc_bunny_api();
 		$raw   = $api->get_dns_stats( $zone_id, $days );
 		if ( is_wp_error( $raw ) ) { wp_send_json_error( [ 'message' => $raw->get_error_message() ] ); return; }
@@ -263,6 +357,12 @@ class SPC_Bunny_Admin {
 		] );
 	}
 
+	/**
+	 * AJAX: Trigger the cache warmer to crawl the sitemap immediately.
+	 *
+	 * @since 2.0.0
+	 * @return void
+	 */
 	public function ajax_warm(): void {
 		check_ajax_referer( 'spc_bunny_warm_now', 'nonce' );
 		if ( ! current_user_can( 'manage_options' ) ) { wp_send_json_error(); return; }
@@ -270,6 +370,12 @@ class SPC_Bunny_Admin {
 		wp_send_json_success( [ 'message' => sprintf( __( 'Warming started — %d URLs queued.', 'spc-bunny' ), SPC_Bunny_Warmer::get_queue_count() ) ] );
 	}
 
+	/**
+	 * AJAX: Queue edge rule deployment via background cron.
+	 *
+	 * @since 2.0.0
+	 * @return void
+	 */
 	public function ajax_deploy(): void {
 		check_ajax_referer( 'spc_bunny_deploy_rules', 'nonce' );
 		if ( ! current_user_can( 'manage_options' ) ) { wp_send_json_error(); return; }
@@ -305,6 +411,12 @@ class SPC_Bunny_Admin {
 		wp_send_json_success( [ 'status' => 'deploying' ] );
 	}
 
+	/**
+	 * AJAX: Remove then redeploy all edge rules synchronously.
+	 *
+	 * @since 2.0.0
+	 * @return void
+	 */
 	public function ajax_update(): void {
 		check_ajax_referer( 'spc_bunny_update_rules', 'nonce' );
 		if ( ! current_user_can( 'manage_options' ) ) { wp_send_json_error( [ 'message' => __( 'Permission denied.', 'spc-bunny' ) ] ); return; }
@@ -322,6 +434,12 @@ class SPC_Bunny_Admin {
 		$result['success'] ? wp_send_json_success( $result ) : wp_send_json_error( $result );
 	}
 
+	/**
+	 * AJAX: Remove all SPC Bunny edge rules from the pull zone.
+	 *
+	 * @since 2.0.0
+	 * @return void
+	 */
 	public function ajax_remove(): void {
 		check_ajax_referer( 'spc_bunny_remove_rules', 'nonce' );
 		if ( ! current_user_can( 'manage_options' ) ) { wp_send_json_error(); return; }
@@ -414,6 +532,12 @@ class SPC_Bunny_Admin {
 
 	// ── Page ─────────────────────────────────────────────────────────────────
 
+	/**
+	 * Render the full plugin settings page HTML.
+	 *
+	 * @since 2.0.0
+	 * @return void
+	 */
 	public function render_page(): void {
 		if ( ! current_user_can( 'manage_options' ) ) { return; }
 
@@ -817,11 +941,11 @@ class SPC_Bunny_Admin {
 				<div class="spc-bunny-card">
 					<h2><?php esc_html_e( 'Pull Zone Settings Applied on Deploy', 'spc-bunny' ); ?></h2>
 					<table class="spc-bunny-settings-table">
-						<tr><td><?php esc_html_e( 'Smart Cache', 'spc-bunny' ); ?></td><td class="spc-err">Disabled</td></tr>
-						<tr><td><?php esc_html_e( 'Strip Response Cookies', 'spc-bunny' ); ?></td><td class="spc-err">Disabled</td></tr>
-						<tr><td><?php esc_html_e( 'Query String Sort', 'spc-bunny' ); ?></td><td class="spc-ok">Enabled</td></tr>
-						<tr><td><?php esc_html_e( 'Cache-Control Override', 'spc-bunny' ); ?></td><td><?php echo $force_cache ? esc_html( "Force {$saved_ttl}s" ) : 'Respect origin'; ?></td></tr>
-						<tr><td><?php esc_html_e( 'Browser Cache', 'spc-bunny' ); ?></td><td>Do Not Cache</td></tr>
+						<tr><td><?php esc_html_e( 'Smart Cache', 'spc-bunny' ); ?></td><td class="spc-err"><?php echo esc_html__( 'Disabled', 'spc-bunny' ); ?></td></tr>
+						<tr><td><?php esc_html_e( 'Strip Response Cookies', 'spc-bunny' ); ?></td><td class="spc-err"><?php echo esc_html__( 'Disabled', 'spc-bunny' ); ?></td></tr>
+						<tr><td><?php esc_html_e( 'Query String Sort', 'spc-bunny' ); ?></td><td class="spc-ok"><?php echo esc_html__( 'Enabled', 'spc-bunny' ); ?></td></tr>
+						<tr><td><?php esc_html_e( 'Cache-Control Override', 'spc-bunny' ); ?></td><td><?php echo $force_cache ? esc_html( "Force {$saved_ttl}s" ) : esc_html__( 'Respect origin', 'spc-bunny' ); ?></td></tr>
+						<tr><td><?php esc_html_e( 'Browser Cache', 'spc-bunny' ); ?></td><td><?php echo esc_html__( 'Do Not Cache', 'spc-bunny' ); ?></td></tr>
 					</table>
 				</div>
 
@@ -892,7 +1016,7 @@ class SPC_Bunny_Admin {
 									<tr>
 										<td><code><?php echo esc_html( $entry['time'] ); ?></code></td>
 										<td><?php echo esc_html( $entry['context'] ); ?></td>
-										<td><span class="spc-bunny-pill <?php echo $entry['success'] ? 'is-ok' : 'is-err'; ?>"><?php echo $entry['success'] ? 'OK' : 'Error'; ?></span></td>
+										<td><span class="spc-bunny-pill <?php echo $entry['success'] ? 'is-ok' : 'is-err'; ?>"><?php echo $entry['success'] ? esc_html__( 'OK', 'spc-bunny' ) : esc_html__( 'Error', 'spc-bunny' ); ?></span></td>
 										<td><?php echo esc_html( $entry['message'] ); ?></td>
 									</tr>
 								<?php endforeach; ?>
@@ -950,6 +1074,16 @@ class SPC_Bunny_Admin {
 		<?php
 	}
 
+	/**
+	 * Render a single checkbox setting row.
+	 *
+	 * @since 2.0.0
+	 * @param string $key  Option key within the settings array.
+	 * @param array  $opts Current saved settings.
+	 * @param string $label Checkbox label text.
+	 * @param string $desc  Description shown below the checkbox.
+	 * @return void
+	 */
 	private function cb( string $key, array $opts, string $label, string $desc ): void {
 		?>
 		<div class="spc-bunny-check-row">

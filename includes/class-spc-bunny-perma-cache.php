@@ -38,20 +38,53 @@ class SPC_Bunny_Perma_Cache {
 	private string $zone_password;
 	private string $region;
 
+	/**
+	 * Create a Perma-Cache manager for the given storage zone.
+	 *
+	 * @since 2.0.0
+	 *
+	 * @param string $zone_name     Storage zone name.
+	 * @param string $zone_password Storage zone API password.
+	 * @param string $region        Storage region code (default 'de').
+	 * @return void
+	 */
 	public function __construct( string $zone_name, string $zone_password, string $region = 'de' ) {
 		$this->zone_name     = $zone_name;
 		$this->zone_password = $zone_password;
 		$this->region        = $region;
 	}
 
+	/**
+	 * Return the Storage API hostname for the configured region.
+	 *
+	 * @since 2.0.0
+	 *
+	 * @return string Storage API hostname.
+	 */
 	private function host(): string {
 		return self::REGIONS[ $this->region ] ?? self::REGIONS['de'];
 	}
 
+	/**
+	 * Build the base URL for Storage API requests to this zone.
+	 *
+	 * @since 2.0.0
+	 *
+	 * @return string Base URL ending with a trailing slash.
+	 */
 	private function base_url(): string {
 		return 'https://' . $this->host() . '/' . $this->zone_name . '/';
 	}
 
+	/**
+	 * Send an authenticated request to the Bunny Storage API.
+	 *
+	 * @since 2.0.0
+	 *
+	 * @param string $method HTTP method (GET, DELETE, etc.).
+	 * @param string $url    Full request URL.
+	 * @return array|WP_Error Decoded JSON response or WP_Error on failure.
+	 */
 	private function request( string $method, string $url ): array|WP_Error {
 		$response = wp_remote_request( $url, [
 			'method'  => $method,
@@ -166,6 +199,13 @@ class SPC_Bunny_Perma_Cache {
 		];
 	}
 
+	/**
+	 * Check whether Perma-Cache settings are fully configured.
+	 *
+	 * @since 2.0.0
+	 *
+	 * @return bool True if zone name, password, and enabled flag are all set.
+	 */
 	public static function is_configured(): bool {
 		$opts = get_option( 'spc_bunny_settings', [] );
 		return ! empty( $opts['perma_cache_enabled'] )
@@ -173,6 +213,13 @@ class SPC_Bunny_Perma_Cache {
 			&& ! empty( $opts['perma_cache_zone_password'] );
 	}
 
+	/**
+	 * Create an instance from the saved WordPress settings, or null if not configured.
+	 *
+	 * @since 2.0.0
+	 *
+	 * @return self|null Instance or null when Perma-Cache is not configured.
+	 */
 	public static function from_settings(): ?self {
 		if ( ! self::is_configured() ) {
 			return null;

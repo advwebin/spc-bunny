@@ -3,10 +3,22 @@ declare( strict_types=1 );
 
 defined( 'ABSPATH' ) || exit;
 
+/**
+ * WordPress hook registration for automatic cache purging.
+ *
+ * @since 2.0.0
+ */
 class SPC_Bunny_Hooks {
 
 	private SPC_Bunny_Purge $purge;
 
+	/**
+	 * Initialise the purge service and register all WordPress hooks.
+	 *
+	 * @since 2.0.0
+	 *
+	 * @return void
+	 */
 	public function __construct() {
 		$this->purge = new SPC_Bunny_Purge();
 		$this->register();
@@ -44,6 +56,13 @@ class SPC_Bunny_Hooks {
 		add_action( 'wp_ajax_spc_bunny_admin_bar_purge', [ $this, 'ajax_admin_bar_purge' ] );
 	}
 
+	/**
+	 * Register REST API save hooks for public custom post types.
+	 *
+	 * @since 3.0.0
+	 *
+	 * @return void
+	 */
 	public function register_cpt_rest_hooks(): void {
 		$built_in = [ 'post', 'page', 'attachment', 'revision', 'nav_menu_item' ];
 		foreach ( get_post_types( [ 'public' => true, 'show_in_rest' => true ] ) as $post_type ) {
@@ -55,6 +74,15 @@ class SPC_Bunny_Hooks {
 
 	// ── WP / REST callbacks ───────────────────────────────────────────────────
 
+	/**
+	 * Purge cache when a published post is saved.
+	 *
+	 * @since 2.0.0
+	 *
+	 * @param int     $post_id Post ID.
+	 * @param WP_Post $post    Post object.
+	 * @return void
+	 */
 	public function on_post_save( int $post_id, WP_Post $post ): void {
 		if ( defined( 'DOING_AUTOSAVE' ) && DOING_AUTOSAVE ) {
 			return;
@@ -69,6 +97,14 @@ class SPC_Bunny_Hooks {
 		}
 	}
 
+	/**
+	 * Purge cache when a post is saved via the REST API.
+	 *
+	 * @since 3.0.0
+	 *
+	 * @param WP_Post $post Post object.
+	 * @return void
+	 */
 	public function on_rest_save( WP_Post $post ): void {
 		if ( 'publish' !== $post->post_status ) {
 			return;
@@ -81,12 +117,30 @@ class SPC_Bunny_Hooks {
 		$this->purge->purge_post( $post->ID );
 	}
 
+	/**
+	 * Purge cache when a post transitions away from published status.
+	 *
+	 * @since 2.0.0
+	 *
+	 * @param string  $new_status New post status.
+	 * @param string  $old_status Old post status.
+	 * @param WP_Post $post       Post object.
+	 * @return void
+	 */
 	public function on_post_status_change( string $new_status, string $old_status, WP_Post $post ): void {
 		if ( 'publish' === $old_status && 'publish' !== $new_status ) {
 			$this->purge->purge_post( $post->ID );
 		}
 	}
 
+	/**
+	 * Purge cache when a published post is deleted.
+	 *
+	 * @since 2.0.0
+	 *
+	 * @param int $post_id Post ID.
+	 * @return void
+	 */
 	public function on_post_delete( int $post_id ): void {
 		$post = get_post( $post_id );
 		if ( $post instanceof WP_Post && 'publish' === $post->post_status ) {
@@ -94,18 +148,42 @@ class SPC_Bunny_Hooks {
 		}
 	}
 
+	/**
+	 * Purge entire cache after a plugin, theme, or core upgrade.
+	 *
+	 * @since 2.0.0
+	 *
+	 * @param WP_Upgrader $upgrader   Upgrader instance.
+	 * @param array       $hook_extra Extra hook data including upgrade type.
+	 * @return void
+	 */
 	public function on_upgrade( WP_Upgrader $upgrader, array $hook_extra ): void {
 		if ( isset( $hook_extra['type'] ) && in_array( $hook_extra['type'], [ 'plugin', 'theme', 'core' ], true ) ) {
 			$this->purge->purge_all();
 		}
 	}
 
+	/**
+	 * Purge the entire CDN cache unconditionally.
+	 *
+	 * @since 2.0.0
+	 *
+	 * @return void
+	 */
 	public function on_purge_all(): void {
 		$this->purge->purge_all();
 	}
 
 	// ── Admin bar ─────────────────────────────────────────────────────────────
 
+	/**
+	 * Add a "Purge Bunny" button to the WordPress admin bar.
+	 *
+	 * @since 2.0.0
+	 *
+	 * @param WP_Admin_Bar $bar Admin bar instance.
+	 * @return void
+	 */
 	public function admin_bar_button( WP_Admin_Bar $bar ): void {
 		if ( ! is_admin_bar_showing() || ! current_user_can( 'manage_options' ) ) {
 			return;
@@ -125,6 +203,13 @@ class SPC_Bunny_Hooks {
 
 	// ── AJAX ──────────────────────────────────────────────────────────────────
 
+	/**
+	 * Handle the AJAX request for manual cache purge from the settings page.
+	 *
+	 * @since 2.0.0
+	 *
+	 * @return void
+	 */
 	public function ajax_manual_purge(): void {
 		check_ajax_referer( 'spc_bunny_manual_purge', 'nonce' );
 		if ( ! current_user_can( 'manage_options' ) ) {
@@ -141,6 +226,13 @@ class SPC_Bunny_Hooks {
 		}
 	}
 
+	/**
+	 * Handle the AJAX request for cache purge triggered from the admin bar.
+	 *
+	 * @since 2.0.0
+	 *
+	 * @return void
+	 */
 	public function ajax_admin_bar_purge(): void {
 		check_ajax_referer( 'spc_bunny_admin_bar_purge', 'nonce' );
 		if ( ! current_user_can( 'manage_options' ) ) {

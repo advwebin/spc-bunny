@@ -2,6 +2,14 @@
 declare( strict_types=1 );
 defined( 'ABSPATH' ) || exit;
 
+/**
+ * Cache warmer that crawls the sitemap after a full CDN purge.
+ *
+ * Queues URLs from the site's XML sitemap and processes them in
+ * batches via WP-Cron so visitors receive cache HITs immediately.
+ *
+ * @since 2.0.0
+ */
 class SPC_Bunny_Warmer {
 
 	private const CRON_HOOK = 'spc_bunny_warm_batch';
@@ -10,10 +18,23 @@ class SPC_Bunny_Warmer {
 	private const DEFAULT_BATCH = 5;
 	private const DEFAULT_DELAY = 30;
 
+	/**
+	 * Register the WP-Cron action for batch processing.
+	 *
+	 * @since 2.0.0
+	 * @return void
+	 */
 	public static function register_hooks(): void {
 		add_action( self::CRON_HOOK, [ static::class, 'process_batch' ] );
 	}
 
+	/**
+	 * Schedule a warming run to start after the given delay.
+	 *
+	 * @since 2.0.0
+	 * @param int $delay Seconds to wait before the first batch fires.
+	 * @return void
+	 */
 	public static function schedule( int $delay = 60 ): void {
 		$opts = get_option( 'spc_bunny_settings', [] );
 		if ( empty( $opts['enable_warmer'] ) ) {
@@ -28,6 +49,14 @@ class SPC_Bunny_Warmer {
 		}
 	}
 
+	/**
+	 * Process the next batch of URLs from the warming queue.
+	 *
+	 * Uses an object-cache lock to prevent overlapping batch runs.
+	 *
+	 * @since 2.0.0
+	 * @return void
+	 */
 	public static function process_batch(): void {
 		// Atomic overlap prevention — only one batch runs at a time.
 		if ( ! wp_cache_add( 'spc_bunny_warming', 1, 'spc-bunny', 120 ) ) {
@@ -73,14 +102,32 @@ class SPC_Bunny_Warmer {
 		}
 	}
 
+	/**
+	 * Return the number of URLs remaining in the warming queue.
+	 *
+	 * @since 2.0.0
+	 * @return int
+	 */
 	public static function get_queue_count(): int {
 		return count( get_option( self::QUEUE_OPT, [] ) );
 	}
 
+	/**
+	 * Check whether a warming run is currently scheduled.
+	 *
+	 * @since 2.0.0
+	 * @return bool
+	 */
 	public static function is_warming(): bool {
 		return (bool) wp_next_scheduled( self::CRON_HOOK );
 	}
 
+	/**
+	 * Cancel any active warming run and clear the URL queue.
+	 *
+	 * @since 2.0.0
+	 * @return void
+	 */
 	public static function cancel(): void {
 		$next = wp_next_scheduled( self::CRON_HOOK );
 		if ( $next ) {
@@ -145,6 +192,15 @@ class SPC_Bunny_Warmer {
 		return '';
 	}
 
+	/**
+	 * Collect URLs to warm from sitemaps or fallback sources.
+	 *
+	 * Tries the detected SEO plugin sitemap first, then known paths,
+	 * and finally falls back to the homepage plus recent posts.
+	 *
+	 * @since 2.0.0
+	 * @return string[] Unique URLs to warm.
+	 */
 	public static function collect_urls(): array {
 		$urls = [];
 
@@ -214,6 +270,18 @@ class SPC_Bunny_Warmer {
 		return strtolower( $parsed['host'] ?? '' ) === strtolower( $home_host ?? '' );
 	}
 
+	/**
+	 * Recursively parse an XML sitemap and extract page URLs.
+	 *
+	 * Handles both sitemap index files and individual sitemaps.
+	 * Caps at 500 URLs and recurses no deeper than 2 levels.
+	 *
+	 * @since 2.0.0
+	 * @param string $url      Sitemap URL to fetch.
+	 * @param bool   $is_index Whether to look for <sitemap> children.
+	 * @param int    $depth    Current recursion depth.
+	 * @return string[] Extracted page URLs.
+	 */
 	private static function parse_sitemap( string $url, bool $is_index = true, int $depth = 0 ): array {
 		if ( $depth > 2 ) { return []; }
 		$response = wp_remote_get( $url, [

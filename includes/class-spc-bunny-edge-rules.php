@@ -2,6 +2,14 @@
 declare( strict_types=1 );
 defined( 'ABSPATH' ) || exit;
 
+/**
+ * Manages Bunny CDN Edge Rules for the configured pull zone.
+ *
+ * Builds, deploys, updates, and removes the full set of edge rules
+ * that control HTML caching, bypass logic, and security headers.
+ *
+ * @since 2.0.0
+ */
 class SPC_Bunny_Edge_Rules {
 
 	private const GUIDS_OPT    = 'spc_bunny_edge_rule_guids';
@@ -36,6 +44,11 @@ class SPC_Bunny_Edge_Rules {
 	private string $host;
 	private string $host_www;
 
+	/**
+	 * Initialize API client and resolve site hostnames.
+	 *
+	 * @since 2.0.0
+	 */
 	public function __construct() {
 		$this->api      = spc_bunny_api();
 		$parsed         = wp_parse_url( home_url() );
@@ -45,6 +58,16 @@ class SPC_Bunny_Edge_Rules {
 			: 'www.' . $this->host;
 	}
 
+	/**
+	 * Deploy all edge rules to the configured pull zone.
+	 *
+	 * Wipes existing rules then creates the full rule set from scratch.
+	 *
+	 * @since 2.0.0
+	 * @param int  $ttl         Cache TTL in seconds (default 1 week).
+	 * @param bool $force_cache Whether to override origin Cache-Control headers.
+	 * @return array{success: bool, results: array} Deployment result summary.
+	 */
 	public function deploy( int $ttl = 604800, bool $force_cache = false ): array {
 		if ( ! $this->api->is_configured() ) {
 			return [ 'success' => false, 'results' => [ [ 'label' => 'Error', 'success' => false, 'message' => __( 'Configure API key and Pull Zone first.', 'spc-bunny' ) ] ] ];
@@ -405,6 +428,15 @@ class SPC_Bunny_Edge_Rules {
 		return [ 'success' => $all_ok, 'results' => $results ];
 	}
 
+	/**
+	 * Remove all SPC Bunny edge rules from the pull zone.
+	 *
+	 * Deletes both live rules with an [SPC Bunny] description prefix
+	 * and any orphaned GUIDs stored locally.
+	 *
+	 * @since 2.0.0
+	 * @return array{success: bool, results: array} Removal result summary.
+	 */
 	public function remove_all(): array {
 		$results = [];
 
@@ -445,10 +477,25 @@ class SPC_Bunny_Edge_Rules {
 		return [ 'success' => $all_ok, 'results' => array_values( $results ) ];
 	}
 
+	/**
+	 * Retrieve the stored rule-key-to-GUID mapping from the database.
+	 *
+	 * @since 2.0.0
+	 * @return array<string, string> Map of rule key to Bunny GUID.
+	 */
 	public function get_deployed_guids(): array {
 		return get_option( self::GUIDS_OPT, [] );
 	}
 
+	/**
+	 * Build wildcard bypass paths for WooCommerce pages.
+	 *
+	 * Resolves cart, checkout, my-account, and shop page permalinks
+	 * including WPML/Polylang translations.
+	 *
+	 * @since 2.0.0
+	 * @return string[] Wildcard path patterns.
+	 */
 	public function get_woo_paths(): array {
 		if ( ! class_exists( 'WooCommerce' ) ) {
 			return [];
@@ -466,6 +513,15 @@ class SPC_Bunny_Edge_Rules {
 		return array_values( array_unique( $paths ) );
 	}
 
+	/**
+	 * Build wildcard bypass paths for SureCart pages.
+	 *
+	 * Resolves checkout, dashboard, order confirmation, shop, and cart
+	 * pages including any multilingual translations.
+	 *
+	 * @since 2.0.0
+	 * @return string[] Wildcard path patterns.
+	 */
 	public function get_surecart_paths(): array {
 		if ( ! class_exists( 'SureCart' ) ) {
 			return [];
@@ -496,6 +552,15 @@ class SPC_Bunny_Edge_Rules {
 		return array_values( array_unique( array_filter( $paths ) ) );
 	}
 
+	/**
+	 * Parse user-defined custom bypass paths from plugin settings.
+	 *
+	 * Normalizes each line into a wildcard URL pattern for both
+	 * the bare and www hostname variants.
+	 *
+	 * @since 2.0.0
+	 * @return string[] Full URL wildcard patterns.
+	 */
 	public function get_custom_bypass_paths(): array {
 		$opts  = get_option( 'spc_bunny_settings', [] );
 		$raw   = (string) ( $opts['custom_bypass_paths'] ?? '' );
@@ -514,6 +579,13 @@ class SPC_Bunny_Edge_Rules {
 		return array_values( array_unique( array_filter( $paths ) ) );
 	}
 
+	/**
+	 * Resolve a page ID to wildcard path patterns including translations.
+	 *
+	 * @since 2.0.0
+	 * @param int $page_id WordPress page ID.
+	 * @return string[] Wildcard path patterns.
+	 */
 	private function resolve_paths( int $page_id ): array {
 		$paths = [];
 		$url   = get_permalink( $page_id );
@@ -540,11 +612,25 @@ class SPC_Bunny_Edge_Rules {
 		return array_values( array_unique( array_filter( $paths ) ) );
 	}
 
+	/**
+	 * Convert a full URL to a trailing-wildcard path pattern.
+	 *
+	 * @since 2.0.0
+	 * @param string $url Absolute URL.
+	 * @return string Path ending with /*.
+	 */
 	private function to_wildcard( string $url ): string {
 		$path = wp_parse_url( $url, PHP_URL_PATH ) ?? '/';
 		return rtrim( $path, '/' ) . '/*';
 	}
 
+	/**
+	 * Expand path patterns into full HTTPS URLs for both hostname variants.
+	 *
+	 * @since 2.0.0
+	 * @param string[] $paths Relative path patterns.
+	 * @return string[] Deduplicated full URL patterns.
+	 */
 	private function both_hosts( array $paths ): array {
 		$out = [];
 		foreach ( $paths as $p ) {
@@ -554,6 +640,14 @@ class SPC_Bunny_Edge_Rules {
 		return array_values( array_unique( $out ) );
 	}
 
+	/**
+	 * Check whether a rule key is enabled by the user's selection.
+	 *
+	 * @since 2.0.0
+	 * @param string     $key           Rule constant key.
+	 * @param array|null $enabled_rules User's enabled rules list, or null for all.
+	 * @return bool
+	 */
 	private function is_rule_enabled( string $key, ?array $enabled_rules ): bool {
 		if ( ! is_array( $enabled_rules ) ) {
 			return true;
@@ -561,6 +655,25 @@ class SPC_Bunny_Edge_Rules {
 		return in_array( $key, $enabled_rules, true );
 	}
 
+	/**
+	 * Deploy a rule in batches when patterns exceed the per-rule limit.
+	 *
+	 * Splits URL patterns across multiple rules with suffixed keys
+	 * and cleans up any stale overflow rules from previous deployments.
+	 *
+	 * @since 2.0.0
+	 * @param string     $base                 Base rule key.
+	 * @param string     $label                Human-readable rule description prefix.
+	 * @param string     $cache_time           ActionParameter1 cache TTL value.
+	 * @param string[]   $patterns             URL patterns to distribute.
+	 * @param array      $guids                Current GUID map (modified in place via return).
+	 * @param array      $results              Deployment results array (modified by reference).
+	 * @param int        $order_index          Starting OrderIndex for the rules.
+	 * @param int|null   $browser_cache        Optional browser cache override seconds.
+	 * @param int|null   $action_type_override Optional Bunny ActionType override.
+	 * @param array|null $enabled_rules        User's enabled rules list, or null for all.
+	 * @return array Updated GUID map.
+	 */
 	private function upsert_batches( string $base, string $label, string $cache_time, array $patterns, array $guids, array &$results, int $order_index = 10, ?int $browser_cache = null, ?int $action_type_override = null, ?array $enabled_rules = null ): array {
 		$chunks = array_chunk( $patterns, self::MAX_PATTERNS );
 		$total  = count( $chunks );
@@ -602,6 +715,19 @@ class SPC_Bunny_Edge_Rules {
 		return $guids;
 	}
 
+	/**
+	 * Create or update a single edge rule on the pull zone.
+	 *
+	 * Skips disabled rules. On success, stores the returned GUID.
+	 *
+	 * @since 2.0.0
+	 * @param string     $key           Rule constant key.
+	 * @param array      $rule          Bunny edge rule payload.
+	 * @param array      $guids         Current GUID map.
+	 * @param array      $results       Deployment results (modified by reference).
+	 * @param array|null $enabled_rules User's enabled rules list, or null for all.
+	 * @return array Updated GUID map.
+	 */
 	private function upsert( string $key, array $rule, array $guids, array &$results, ?array $enabled_rules = null ): array {
 		if ( ! $this->is_rule_enabled( $key, $enabled_rules ) ) {
 			return $guids;
