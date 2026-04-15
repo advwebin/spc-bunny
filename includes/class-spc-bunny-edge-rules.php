@@ -37,7 +37,7 @@ class SPC_Bunny_Edge_Rules {
     private string $host_www;
 
     public function __construct() {
-        $this->api      = new SPC_Bunny_API();
+        $this->api      = spc_bunny_api();
         $parsed         = wp_parse_url( home_url() );
         $this->host     = $parsed['host'] ?? '';
         $this->host_www = str_starts_with( $this->host, 'www.' )
@@ -49,6 +49,9 @@ class SPC_Bunny_Edge_Rules {
         if ( ! $this->api->is_configured() ) {
             return [ 'success' => false, 'results' => [ [ 'label' => 'Error', 'success' => false, 'message' => __( 'Configure API key and Pull Zone first.', 'spc-bunny' ) ] ] ];
         }
+
+        $opts          = get_option( 'spc_bunny_settings', [] );
+        $enabled_rules = $opts['enabled_rules'] ?? null;
 
         $results = [];
         $guids   = get_option( self::GUIDS_OPT, [] );
@@ -77,9 +80,6 @@ class SPC_Bunny_Edge_Rules {
         }
         // Clear stored GUIDs — everything will be created fresh below
         $guids = [];
-
-        // Brief pause to let Bunny propagate the deletions before we re-create.
-        sleep( 1 );
 
         // ── Pull Zone settings ────────────────────────────────────────────────
         $pz = $this->api->update_pull_zone( [
@@ -114,7 +114,7 @@ class SPC_Bunny_Edge_Rules {
                 'PatternMatches'      => array_values( array_unique( [ "http://{$h}/*", "http://{$hwww}/*" ] ) ),
                 'PatternMatchingType' => 0,
             ] ],
-        ], $guids, $results );
+        ], $guids, $results, $enabled_rules );
 
         // ── Rule 2: Disable Shield & WAF — WP admin only ──────────────────────
         // wp-login.php intentionally keeps Shield for bot protection.
@@ -136,7 +136,7 @@ class SPC_Bunny_Edge_Rules {
                 'ActionParameter2' => '',
                 'ActionParameter3' => '',
             ] ],
-        ], $guids, $results );
+        ], $guids, $results, $enabled_rules );
 
         // ── Rule 3: Bypass cache — logged-in users ────────────────────────────
         $guids = $this->upsert( self::RULE_BYPASS_LOGGED_IN, [
@@ -152,11 +152,11 @@ class SPC_Bunny_Edge_Rules {
                 'PatternMatches'      => [ '*wordpress_logged_in_*', '*comment_author_*', '*wp-postpass_*' ],
                 'PatternMatchingType' => 0,
             ] ],
-        ], $guids, $results );
+        ], $guids, $results, $enabled_rules );
 
         // ── Rule 4: Bypass cache — WP admin & PHP ────────────────────────────
         $admin_patterns = $this->both_hosts( [ '/wp-admin/*', '/*.php*' ] );
-        $guids = $this->upsert_batches( self::RULE_BYPASS_ADMIN, '[SPC Bunny] Bypass: WP admin & PHP', '0', $admin_patterns, $guids, $results, 4 );
+        $guids = $this->upsert_batches( self::RULE_BYPASS_ADMIN, '[SPC Bunny] Bypass: WP admin & PHP', '0', $admin_patterns, $guids, $results, 4, null, null, $enabled_rules );
 
         // ── Rule 5: Bypass Perma-Cache — WP admin & PHP ───────────────────────
         $guids = $this->upsert( self::RULE_ADMIN_BYPASS_PC, [
@@ -171,7 +171,7 @@ class SPC_Bunny_Edge_Rules {
                 'PatternMatches'      => array_values( array_unique( [ "https://{$h}/wp-admin/*", "https://{$hwww}/wp-admin/*", "https://{$h}/*.php*", "https://{$hwww}/*.php*" ] ) ),
                 'PatternMatchingType' => 0,
             ] ],
-        ], $guids, $results );
+        ], $guids, $results, $enabled_rules );
 
         // ── Rule 6: Disable Optimizer — WP admin & login ─────────────────────
         $guids = $this->upsert( self::RULE_ADMIN_DISABLE_OPT, [
@@ -186,7 +186,7 @@ class SPC_Bunny_Edge_Rules {
                 'PatternMatches'      => array_values( array_unique( [ "https://{$h}/wp-admin/*", "https://{$hwww}/wp-admin/*", "https://{$h}/wp-login.php*", "https://{$hwww}/wp-login.php*" ] ) ),
                 'PatternMatchingType' => 0,
             ] ],
-        ], $guids, $results );
+        ], $guids, $results, $enabled_rules );
 
         // ── Rule 7: Bypass — wp-cron.php ─────────────────────────────────────
         // WP cron must always hit origin fresh. Never cache or Shield-challenge it.
@@ -202,7 +202,7 @@ class SPC_Bunny_Edge_Rules {
                 'PatternMatches'      => array_values( array_unique( [ "https://{$h}/wp-cron.php*", "https://{$hwww}/wp-cron.php*" ] ) ),
                 'PatternMatchingType' => 0,
             ] ],
-        ], $guids, $results );
+        ], $guids, $results, $enabled_rules );
 
         // ── Rule 8: Bypass — REST API ─────────────────────────────────────────
         // /wp-json/* responses are dynamic. Never cache them.
@@ -218,7 +218,7 @@ class SPC_Bunny_Edge_Rules {
                 'PatternMatches'      => array_values( array_unique( [ "https://{$h}/wp-json/*", "https://{$hwww}/wp-json/*" ] ) ),
                 'PatternMatchingType' => 0,
             ] ],
-        ], $guids, $results );
+        ], $guids, $results, $enabled_rules );
 
         // ── Rule 9: Bypass — POST requests ───────────────────────────────────
         // All HTTP POST requests (form submissions, AJAX writes, REST mutations)
@@ -236,7 +236,7 @@ class SPC_Bunny_Edge_Rules {
                 'PatternMatches'      => [ 'POST' ],
                 'PatternMatchingType' => 0,
             ] ],
-        ], $guids, $results );
+        ], $guids, $results, $enabled_rules );
 
         // ── Rule 9: Bypass — RSS/Atom feeds ──────────────────────────────────
         // Feeds change with every new post. Aggregators poll frequently.
@@ -252,12 +252,12 @@ class SPC_Bunny_Edge_Rules {
                 'PatternMatches'      => array_values( array_unique( [ "https://{$h}/feed/*", "https://{$hwww}/feed/*", "https://{$h}/*/feed/*", "https://{$hwww}/*/feed/*" ] ) ),
                 'PatternMatchingType' => 0,
             ] ],
-        ], $guids, $results );
+        ], $guids, $results, $enabled_rules );
 
         // ── Rule 10+11: WooCommerce ───────────────────────────────────────────
         if ( class_exists( 'WooCommerce' ) ) {
             $woo = $this->both_hosts( $this->get_woo_paths() );
-            $guids = $this->upsert_batches( self::RULE_BYPASS_WOO, '[SPC Bunny] Bypass: WooCommerce pages', '0', $woo, $guids, $results, 11 );
+            $guids = $this->upsert_batches( self::RULE_BYPASS_WOO, '[SPC Bunny] Bypass: WooCommerce pages', '0', $woo, $guids, $results, 11, null, null, $enabled_rules );
 
             $guids = $this->upsert( self::RULE_BYPASS_WOO_COOKIE, [
                 'OrderIndex'          => 12,
@@ -272,14 +272,14 @@ class SPC_Bunny_Edge_Rules {
                     'PatternMatches'      => [ '*woocommerce_cart_hash*', '*woocommerce_items_in_cart*', '*woocommerce_session_*' ],
                     'PatternMatchingType' => 0,
                 ] ],
-            ], $guids, $results );
+            ], $guids, $results, $enabled_rules );
         }
 
         // ── Rule 12+13: SureCart ──────────────────────────────────────────────
         if ( class_exists( 'SureCart' ) ) {
             $sc = $this->both_hosts( $this->get_surecart_paths() );
             if ( ! empty( $sc ) ) {
-                $guids = $this->upsert_batches( self::RULE_BYPASS_SC, '[SPC Bunny] Bypass: SureCart pages', '0', $sc, $guids, $results, 13 );
+                $guids = $this->upsert_batches( self::RULE_BYPASS_SC, '[SPC Bunny] Bypass: SureCart pages', '0', $sc, $guids, $results, 13, null, null, $enabled_rules );
             }
             $guids = $this->upsert( self::RULE_BYPASS_SC_COOKIE, [
                 'OrderIndex'          => 14,
@@ -294,13 +294,13 @@ class SPC_Bunny_Edge_Rules {
                     'PatternMatches'      => [ '*sc_session*', '*surecart_*', '*sc_cart*' ],
                     'PatternMatchingType' => 0,
                 ] ],
-            ], $guids, $results );
+            ], $guids, $results, $enabled_rules );
         }
 
         // ── Rule 14: Custom URL exclusions ────────────────────────────────────
         $custom_paths = $this->get_custom_bypass_paths();
         if ( ! empty( $custom_paths ) ) {
-            $guids = $this->upsert_batches( self::RULE_CUSTOM_BYPASS, '[SPC Bunny] Bypass: custom URLs', '0', $custom_paths, $guids, $results, 15 );
+            $guids = $this->upsert_batches( self::RULE_CUSTOM_BYPASS, '[SPC Bunny] Bypass: custom URLs', '0', $custom_paths, $guids, $results, 15, null, null, $enabled_rules );
         } elseif ( isset( $guids[ self::RULE_CUSTOM_BYPASS ] ) ) {
             $this->api->delete_edge_rule( $guids[ self::RULE_CUSTOM_BYPASS ] );
             unset( $guids[ self::RULE_CUSTOM_BYPASS ] );
@@ -326,7 +326,7 @@ class SPC_Bunny_Edge_Rules {
                     'PatternMatchingType' => 0,
                 ],
             ],
-        ], $guids, $results );
+        ], $guids, $results, $enabled_rules );
 
         // ── Rule 16: No browser cache for HTML ────────────────────────────────
         // Bunny edge caches; browsers do not. Fresh page after every purge.
@@ -349,7 +349,7 @@ class SPC_Bunny_Edge_Rules {
                     'PatternMatchingType' => 0,
                 ],
             ],
-        ], $guids, $results );
+        ], $guids, $results, $enabled_rules );
 
         // ── Rule 17: Long browser cache for static assets ─────────────────────
         // ActionType 16 = OverrideBrowserCacheTime. ActionParameter1 = seconds.
@@ -363,7 +363,7 @@ class SPC_Bunny_Edge_Rules {
         }
         $static_patterns = array_values( array_unique( $static_patterns ) );
         // Use upsert_batches with ActionType 16 override and '31536000' as param
-        $guids = $this->upsert_batches( self::RULE_STATIC_BROWSER_CACHE, '[SPC Bunny] Long browser cache: static assets', '31536000', $static_patterns, $guids, $results, 18, null, 16 );
+        $guids = $this->upsert_batches( self::RULE_STATIC_BROWSER_CACHE, '[SPC Bunny] Long browser cache: static assets', '31536000', $static_patterns, $guids, $results, 18, null, 16, $enabled_rules );
 
         // ── Rule 18: Ignore query string for static assets ────────────────────
         // ?ver=6.4.1 and ?ver=6.4.2 share the same cache entry. Eliminates
@@ -375,7 +375,7 @@ class SPC_Bunny_Edge_Rules {
                 $qs_patterns[] = "https://{$hwww}/*.{$ext}?*";
             }
         }
-        $guids = $this->upsert_batches( self::RULE_STATIC_IGNORE_QS, '[SPC Bunny] Ignore query string: CSS & JS', '', array_values( array_unique( $qs_patterns ) ), $guids, $results, 19, null, 11 );
+        $guids = $this->upsert_batches( self::RULE_STATIC_IGNORE_QS, '[SPC Bunny] Ignore query string: CSS & JS', '', array_values( array_unique( $qs_patterns ) ), $guids, $results, 19, null, 11, $enabled_rules );
 
         // ── Rule 19: Security response headers ───────────────────────────────
         // X-Content-Type-Options, X-Frame-Options, Referrer-Policy on all responses.
@@ -398,7 +398,7 @@ class SPC_Bunny_Edge_Rules {
                 [ 'ActionType' => 5, 'ActionParameter1' => 'Referrer-Policy',     'ActionParameter2' => 'strict-origin-when-cross-origin', 'ActionParameter3' => '' ],
                 [ 'ActionType' => 5, 'ActionParameter1' => 'X-XSS-Protection',   'ActionParameter2' => '1; mode=block',               'ActionParameter3' => '' ],
             ],
-        ], $guids, $results );
+        ], $guids, $results, $enabled_rules );
 
         update_option( self::GUIDS_OPT, $guids, false );
         $all_ok = ! in_array( false, array_column( $results, 'success' ), true );
@@ -554,17 +554,14 @@ class SPC_Bunny_Edge_Rules {
         return array_values( array_unique( $out ) );
     }
 
-    private function is_rule_enabled( string $key ): bool {
-        $opts    = get_option( 'spc_bunny_settings', [] );
-        $enabled = $opts['enabled_rules'] ?? null;
-        // If setting not yet saved (fresh install), all rules are enabled by default
-        if ( ! is_array( $enabled ) ) {
+    private function is_rule_enabled( string $key, ?array $enabled_rules ): bool {
+        if ( ! is_array( $enabled_rules ) ) {
             return true;
         }
-        return in_array( $key, $enabled, true );
+        return in_array( $key, $enabled_rules, true );
     }
 
-    private function upsert_batches( string $base, string $label, string $cache_time, array $patterns, array $guids, array &$results, int $order_index = 10, ?int $browser_cache = null, ?int $action_type_override = null ): array {
+    private function upsert_batches( string $base, string $label, string $cache_time, array $patterns, array $guids, array &$results, int $order_index = 10, ?int $browser_cache = null, ?int $action_type_override = null, ?array $enabled_rules = null ): array {
         $chunks = array_chunk( $patterns, self::MAX_PATTERNS );
         $total  = count( $chunks );
         foreach ( $chunks as $i => $chunk ) {
@@ -595,7 +592,7 @@ class SPC_Bunny_Edge_Rules {
                     'ActionParameter3' => '',
                 ] ];
             }
-            $guids = $this->upsert( $key, $rule, $guids, $results );
+            $guids = $this->upsert( $key, $rule, $guids, $results, $enabled_rules );
         }
         for ( $i = $total; isset( $guids[ $base . '_' . $i ] ); $i++ ) {
             $stale = $base . '_' . $i;
@@ -605,8 +602,8 @@ class SPC_Bunny_Edge_Rules {
         return $guids;
     }
 
-    private function upsert( string $key, array $rule, array $guids, array &$results ): array {
-        if ( ! $this->is_rule_enabled( $key ) ) {
+    private function upsert( string $key, array $rule, array $guids, array &$results, ?array $enabled_rules = null ): array {
+        if ( ! $this->is_rule_enabled( $key, $enabled_rules ) ) {
             return $guids;
         }
         $response = $this->api->upsert_edge_rule( $rule );

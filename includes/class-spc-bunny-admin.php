@@ -24,6 +24,8 @@ class SPC_Bunny_Admin {
         add_action( 'wp_ajax_spc_bunny_fetch_dns_stats',  [ $this, 'ajax_fetch_dns_stats'  ] );
         add_action( 'wp_ajax_spc_bunny_cleanup_perma',    [ $this, 'ajax_cleanup_perma'    ] );
         add_action( 'wp_ajax_spc_bunny_purge_url',       [ $this, 'ajax_purge_url'       ] );
+        add_action( 'spc_bunny_cron_deploy',             [ $this, 'cron_deploy'          ] );
+        add_action( 'wp_ajax_spc_bunny_deploy_status',   [ $this, 'ajax_deploy_status'   ] );
         add_filter( 'plugin_action_links_' . plugin_basename( SPC_BUNNY_FILE ), [ $this, 'action_links' ] );
     }
 
@@ -271,20 +273,36 @@ class SPC_Bunny_Admin {
     public function ajax_deploy(): void {
         check_ajax_referer( 'spc_bunny_deploy_rules', 'nonce' );
         if ( ! current_user_can( 'manage_options' ) ) { wp_send_json_error(); return; }
+
         $ttl         = absint( wp_unslash( $_POST['ttl'] ?? 604800 ) );
         $force_cache = ! empty( wp_unslash( $_POST['force_cache'] ?? '' ) );
-        update_option( 'spc_bunny_edge_ttl',    $ttl,         false );
-        update_option( 'spc_bunny_force_cache', $force_cache, false );
-        // Save custom bypass paths into settings so deploy() can read them
-        $settings = get_option( 'spc_bunny_settings', [] );
-        $settings['custom_bypass_paths'] = sanitize_textarea_field( wp_unslash( $_POST['custom_bypass_paths'] ?? '' ) );
+        $custom      = sanitize_textarea_field( wp_unslash( $_POST['custom_bypass_paths'] ?? '' ) );
         $raw_enabled = isset( $_POST['enabled_rules'] ) && is_array( $_POST['enabled_rules'] )
             ? array_map( 'sanitize_key', wp_unslash( $_POST['enabled_rules'] ) )
             : null;
-        $settings['enabled_rules'] = $raw_enabled;
+
+        update_option( 'spc_bunny_deploy_params', [
+            'ttl'                 => $ttl,
+            'force_cache'         => $force_cache,
+            'custom_bypass_paths' => $custom,
+            'enabled_rules'       => $raw_enabled,
+        ], false );
+
+        update_option( 'spc_bunny_deploy_status', [
+            'status'    => 'pending',
+            'initiated' => time(),
+            'results'   => [],
+        ], false );
+
+        $settings = get_option( 'spc_bunny_settings', [] );
+        $settings['custom_bypass_paths'] = $custom;
+        $settings['enabled_rules']       = $raw_enabled;
         update_option( 'spc_bunny_settings', $settings, false );
-        $result = ( new SPC_Bunny_Edge_Rules() )->deploy( $ttl, $force_cache );
-        $result['success'] ? wp_send_json_success( $result ) : wp_send_json_error( $result );
+        update_option( 'spc_bunny_edge_ttl', $ttl, false );
+        update_option( 'spc_bunny_force_cache', $force_cache, false );
+
+        wp_schedule_single_event( time(), 'spc_bunny_cron_deploy' );
+        wp_send_json_success( [ 'status' => 'deploying' ] );
     }
 
     public function ajax_update(): void {
@@ -333,6 +351,59 @@ class SPC_Bunny_Admin {
             return;
         }
         wp_send_json_success( [ 'message' => sprintf( __( 'Purged: %s', 'spc-bunny' ), $url ) ] );
+    }
+
+    /**
+     * Cron: Execute edge rule deployment in background.
+     *
+     * @since 3.0.0
+     */
+    public function cron_deploy(): void {
+        $params = get_option( 'spc_bunny_deploy_params', [] );
+        if ( empty( $params ) ) {
+            return;
+        }
+
+        update_option( 'spc_bunny_deploy_status', [
+            'status'    => 'running',
+            'initiated' => time(),
+            'results'   => [],
+        ], false );
+
+        $er     = new SPC_Bunny_Edge_Rules();
+        $result = $er->deploy(
+            (int) ( $params['ttl'] ?? 604800 ),
+            (bool) ( $params['force_cache'] ?? false )
+        );
+
+        update_option( 'spc_bunny_deploy_status', [
+            'status'    => $result['success'] ? 'complete' : 'failed',
+            'initiated' => time(),
+            'results'   => $result['results'] ?? [],
+        ], false );
+
+        delete_option( 'spc_bunny_deploy_params' );
+    }
+
+    /**
+     * AJAX: Poll edge rule deployment status.
+     *
+     * @since 3.0.0
+     */
+    public function ajax_deploy_status(): void {
+        check_ajax_referer( 'spc_bunny_deploy_status', 'nonce' );
+        if ( ! current_user_can( 'manage_options' ) ) {
+            wp_send_json_error();
+            return;
+        }
+
+        $status = get_option( 'spc_bunny_deploy_status', [] );
+
+        if ( 'pending' === ( $status['status'] ?? '' ) && ( time() - ( $status['initiated'] ?? 0 ) ) > 90 ) {
+            $status['status'] = 'timeout';
+        }
+
+        wp_send_json_success( $status );
     }
 
     // ── Page ─────────────────────────────────────────────────────────────────
