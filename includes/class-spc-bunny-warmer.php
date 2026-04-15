@@ -19,27 +19,38 @@ class SPC_Bunny_Warmer {
         if ( empty( $opts['enable_warmer'] ) ) {
             return;
         }
-        $urls = self::collect_urls();
-        if ( empty( $urls ) ) {
-            return;
+
+        // Store flag — do NOT fetch sitemaps here (deferred to cron).
+        update_option( 'spc_bunny_warm_pending', true, false );
+
+        if ( ! wp_next_scheduled( self::CRON_HOOK ) ) {
+            wp_schedule_event( time() + $delay, 'spc_bunny_warm_interval', self::CRON_HOOK );
         }
-        update_option( self::QUEUE_OPT, $urls, false );
-        $next = wp_next_scheduled( self::CRON_HOOK );
-        if ( $next ) {
-            wp_unschedule_event( $next, self::CRON_HOOK );
-        }
-        wp_schedule_single_event( time() + $delay, self::CRON_HOOK );
     }
 
     public static function process_batch(): void {
+        // Atomic overlap prevention — only one batch runs at a time.
+        if ( ! wp_cache_add( 'spc_bunny_warming', 1, 'spc-bunny', 120 ) ) {
+            return;
+        }
+
         $queue = get_option( self::QUEUE_OPT, [] );
+
+        // First run after purge: expand URLs from sitemap.
+        if ( empty( $queue ) && get_option( 'spc_bunny_warm_pending' ) ) {
+            $queue = self::collect_urls();
+            update_option( self::QUEUE_OPT, $queue, false );
+            delete_option( 'spc_bunny_warm_pending' );
+        }
+
         if ( empty( $queue ) ) {
+            wp_clear_scheduled_hook( self::CRON_HOOK );
+            wp_cache_delete( 'spc_bunny_warming', 'spc-bunny' );
             return;
         }
 
         $opts       = get_option( 'spc_bunny_settings', [] );
         $batch_size = max( 1, min( 50, (int) ( $opts['warmer_batch_size'] ?? self::DEFAULT_BATCH ) ) );
-        $delay      = max( 5, min( 300, (int) ( $opts['warmer_batch_delay'] ?? self::DEFAULT_DELAY ) ) );
 
         $batch = array_splice( $queue, 0, $batch_size );
         update_option( self::QUEUE_OPT, $queue, false );
@@ -48,13 +59,17 @@ class SPC_Bunny_Warmer {
             wp_remote_get( $url, [
                 'timeout'    => 10,
                 'blocking'   => false,
-                'user-agent' => 'SPC-Bunny-Warmer/1.0',
-                'sslverify'  => false,
+                'user-agent' => 'SPC-Bunny-Warmer/' . SPC_BUNNY_VERSION,
+                'sslverify'  => true,
             ] );
         }
 
-        if ( ! empty( $queue ) ) {
-            wp_schedule_single_event( time() + $delay, self::CRON_HOOK );
+        // Clear overlap lock.
+        wp_cache_delete( 'spc_bunny_warming', 'spc-bunny' );
+
+        // If queue drained, stop recurring schedule.
+        if ( empty( $queue ) ) {
+            wp_clear_scheduled_hook( self::CRON_HOOK );
         }
     }
 
@@ -71,7 +86,9 @@ class SPC_Bunny_Warmer {
         if ( $next ) {
             wp_unschedule_event( $next, self::CRON_HOOK );
         }
+        wp_clear_scheduled_hook( self::CRON_HOOK );
         delete_option( self::QUEUE_OPT );
+        delete_option( 'spc_bunny_warm_pending' );
     }
 
     /**
@@ -178,12 +195,31 @@ class SPC_Bunny_Warmer {
         return array_values( array_unique( array_filter( $urls ) ) );
     }
 
+    /**
+     * Validate a URL belongs to this site (SSRF protection).
+     *
+     * Prevents sitemap injection attacks where attacker-controlled <loc>
+     * entries could make the server fetch internal network resources.
+     *
+     * @since 3.0.0
+     * @param string $url URL to validate.
+     * @return bool
+     */
+    private static function is_allowed_url( string $url ): bool {
+        $parsed = wp_parse_url( $url );
+        if ( ! in_array( $parsed['scheme'] ?? '', [ 'http', 'https' ], true ) ) {
+            return false;
+        }
+        $home_host = wp_parse_url( home_url(), PHP_URL_HOST );
+        return strtolower( $parsed['host'] ?? '' ) === strtolower( $home_host ?? '' );
+    }
+
     private static function parse_sitemap( string $url, bool $is_index = true, int $depth = 0 ): array {
         if ( $depth > 2 ) { return []; }
         $response = wp_remote_get( $url, [
             'timeout'    => 10,
             'user-agent' => 'SPC-Bunny-Warmer/1.0',
-            'sslverify'  => false,
+            'sslverify'  => true,
         ] );
         if ( is_wp_error( $response ) || wp_remote_retrieve_response_code( $response ) !== 200 ) {
             return [];
@@ -200,7 +236,7 @@ class SPC_Bunny_Warmer {
         if ( $is_index && isset( $xml->sitemap ) ) {
             foreach ( $xml->sitemap as $child ) {
                 $child_url = (string) ( $child->loc ?? '' );
-                if ( $child_url ) {
+                if ( $child_url && self::is_allowed_url( $child_url ) ) {
                     $urls = array_merge( $urls, self::parse_sitemap( $child_url, false, $depth + 1 ) );
                     if ( count( $urls ) >= 500 ) {
                         break;
@@ -212,7 +248,7 @@ class SPC_Bunny_Warmer {
         if ( isset( $xml->url ) ) {
             foreach ( $xml->url as $entry ) {
                 $loc = (string) ( $entry->loc ?? '' );
-                if ( $loc ) {
+                if ( $loc && self::is_allowed_url( $loc ) ) {
                     $urls[] = $loc;
                 }
             }
